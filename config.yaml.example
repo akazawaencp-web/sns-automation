@@ -1,0 +1,86 @@
+# SNS Automation - Configuration File
+# このファイルをコピーして config.yaml を作成し、必要な情報を入力してください
+
+# API Keys
+api_keys:
+  # Anthropic Claude API Key
+  # https://console.anthropic.com/ で取得
+  claude: "your-claude-api-key-here"
+
+  # ElevenLabs API Key
+  # https://elevenlabs.io/ で取得
+  elevenlabs: "your-elevenlabs-api-key-here"
+
+# Google Sheets API
+google_sheets:
+  # Service Account JSONファイルのパス
+  credentials_path: "/path/to/your/service-account-credentials.json"
+
+  # デフォルトのスプレッドシートID
+  # スプレッドシートURLの /d/ と /edit の間の文字列
+  # 例: https://docs.google.com/spreadsheets/d/SPREADSHEET_ID_HERE/edit
+  default_spreadsheet_id: "your-spreadsheet-id-here"
+
+  # シート名設定
+  sheets:
+    strategy: "戦略設計"
+    analysis: "競合分析"
+    ideas: "企画タイトル表"
+    scripts: "台本表"
+
+# ディレクトリパス
+paths:
+  # 出力ディレクトリ
+  output: "./output"
+
+  # 動画ファイル格納ディレクトリ（Chapter 2用）
+  videos: "./videos"
+
+  # 抽出した静止画格納ディレクトリ
+  frames: "./frames"
+
+  # 生成した音声ファイル格納ディレクトリ
+  audio: "./audio"
+
+# ElevenLabs設定
+elevenlabs:
+  # デフォルトのボイスID
+  # https://elevenlabs.io/voice-library で確認
+  default_voice_id: "21m00Tcm4TlvDq8ikWAM"  # Rachel (デフォルト)
+
+  # 音声モデル
+  model: "eleven_multilingual_v2"
+
+  # 音声品質設定
+  stability: 0.5
+  similarity_boost: 0.75
+
+# Claude API設定
+claude:
+  # モデル名
+  model: "claude-opus-4-6"
+
+  # デフォルトパラメータ
+  temperature: 0.7
+  max_tokens: 4000
+
+# Chapter 2: 競合分析設定
+analysis:
+  # 1動画あたりの静止画抽出数
+  frames_per_video: 5
+
+  # 分析する競合の数
+  num_competitors: 5
+
+# Chapter 3: コンテンツ設定
+content:
+  # 生成する企画の数
+  num_ideas: 20
+
+  # 台本の最大文字数
+  max_script_length: 2000
+
+# ログ設定
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file: "./logs/sns-automation.log"
