@@ -123,7 +123,7 @@ def main():
                     st.error("プロジェクト名を入力してください")
                 elif not _is_valid_project_name(project_name):
                     st.error("プロジェクト名は半角英数字、ハイフン、アンダースコアのみ使用できます")
-                elif project_name in sm_list.list_all_projects():
+                elif project_name in StateManager().list_all_projects():
                     st.error(f"プロジェクト「{project_name}」は既に存在します")
                 else:
                     # StateManagerで初期状態を保存（ローカル + Google Sheets）
