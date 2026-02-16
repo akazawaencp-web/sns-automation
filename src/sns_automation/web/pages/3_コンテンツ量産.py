@@ -798,7 +798,12 @@ def _generate_ideas(project_name: str, project_state: dict):
         progress_bar.progress(20)
 
         # 企画を生成（20案）
-        ideas = _generate_ideas_non_interactive(automation, chapter1_data, progress_bar, status_text)
+        # 追加生成時は既存企画を渡してネタ被りを回避
+        existing_ideas = None
+        if st.session_state.get("add_more_ideas"):
+            existing_ideas = project_state.get("data", {}).get("ideas", [])
+
+        ideas = _generate_ideas_non_interactive(automation, chapter1_data, progress_bar, status_text, existing_ideas=existing_ideas)
 
         if ideas:
             # プロジェクト状態を更新
@@ -852,7 +857,7 @@ def _generate_ideas(project_name: str, project_state: dict):
         st.session_state.add_more_ideas = False
 
 
-def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data: dict, progress_bar, status_text) -> list:
+def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data: dict, progress_bar, status_text, existing_ideas: list = None) -> list:
     """
     企画を非対話的に生成（WebUI用）
 
@@ -861,6 +866,7 @@ def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data
         strategy_data: Chapter 1の戦略データ
         progress_bar: Streamlitプログレスバー
         status_text: Streamlitステータステキスト
+        existing_ideas: 既存の企画リスト（追加生成時にネタ被りを避けるため）
 
     Returns:
         企画リスト
@@ -880,14 +886,30 @@ def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data
     status_text.text("プロンプトを準備中...")
     progress_bar.progress(30)
 
-    prompt_data = load_prompt(
-        chapter="chapter3",
-        prompt_name="idea_generation",
-        variables={
-            "persona": persona_text,
-            "pains": pains,
-        },
-    )
+    # 追加生成時は既存企画を含むプロンプトを使用
+    if existing_ideas:
+        existing_titles = "\n".join(
+            f"- {idea.get('title', '（タイトルなし）')}"
+            for idea in existing_ideas
+        )
+        prompt_data = load_prompt(
+            chapter="chapter3",
+            prompt_name="idea_generation_additional",
+            variables={
+                "persona": persona_text,
+                "pains": pains,
+                "existing_ideas": existing_titles,
+            },
+        )
+    else:
+        prompt_data = load_prompt(
+            chapter="chapter3",
+            prompt_name="idea_generation",
+            variables={
+                "persona": persona_text,
+                "pains": pains,
+            },
+        )
 
     status_text.text("Claude APIで企画を生成中...（数十秒かかります）")
     progress_bar.progress(40)
