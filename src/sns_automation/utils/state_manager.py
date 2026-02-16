@@ -64,6 +64,7 @@ class StateManager:
         # Google Sheets クライアントを初期化（オプショナル）
         self.sheets_client = None
         self.spreadsheet = None
+        self.backup_spreadsheet = None
         self._init_sheets()
 
     def _init_sheets(self) -> None:
@@ -93,6 +94,14 @@ class StateManager:
             self.spreadsheet = self.sheets_client.open_by_key(spreadsheet_id)
 
             logger.info("Google Sheets APIの初期化に成功しました")
+
+            # バックアップ用スプレッドシートを初期化
+            try:
+                backup_id = st.secrets["google_sheets"]["backup_spreadsheet_id"]
+                self.backup_spreadsheet = self.sheets_client.open_by_key(backup_id)
+                logger.info("バックアップ用Google Sheetsの初期化に成功しました")
+            except Exception as e:
+                logger.warning(f"バックアップ用Google Sheetsの初期化に失敗（バックアップなしで続行）: {e}")
 
         except Exception as e:
             logger.warning(f"Google Sheets APIの初期化に失敗（ローカルファイルのみ使用）: {e}")
@@ -132,16 +141,23 @@ class StateManager:
         self._save_to_sheets(state)
 
     def _save_to_sheets(self, state: Dict[str, Any]) -> None:
-        """Google Sheetsに状態を保存（失敗してもエラーを出さない）"""
-        if not self.spreadsheet:
-            return
+        """Google Sheetsに状態を保存（メイン + バックアップ、失敗してもエラーを出さない）"""
+        # メインに保存
+        if self.spreadsheet:
+            self._save_to_single_sheet(self.spreadsheet, state, "メイン")
 
+        # バックアップに保存
+        if self.backup_spreadsheet:
+            self._save_to_single_sheet(self.backup_spreadsheet, state, "バックアップ")
+
+    def _save_to_single_sheet(self, spreadsheet, state: Dict[str, Any], label: str) -> None:
+        """指定されたスプレッドシートに状態を保存"""
         try:
             # シートを取得または作成
             try:
-                sheet = self.spreadsheet.worksheet("sns_automation_states")
+                sheet = spreadsheet.worksheet("sns_automation_states")
             except:
-                sheet = self.spreadsheet.add_worksheet(
+                sheet = spreadsheet.add_worksheet(
                     title="sns_automation_states", rows=1000, cols=10
                 )
                 # ヘッダー行を追加
@@ -178,10 +194,10 @@ class StateManager:
                 # 新しい行を追加
                 sheet.append_row(row_data)
 
-            logger.info(f"状態をGoogle Sheetsに保存しました: {self.project_name}")
+            logger.info(f"状態を{label}Google Sheetsに保存しました: {self.project_name}")
 
         except Exception as e:
-            logger.warning(f"Google Sheetsへの保存に失敗（ローカルのみ）: {e}")
+            logger.warning(f"{label}Google Sheetsへの保存に失敗: {e}")
 
     def load_state(self) -> Optional[Dict[str, Any]]:
         """
@@ -210,12 +226,27 @@ class StateManager:
             return None
 
     def _load_from_sheets(self) -> Optional[Dict[str, Any]]:
-        """Google Sheetsから状態を読み込む（失敗したらNoneを返す）"""
-        if not self.spreadsheet:
-            return None
+        """Google Sheetsから状態を読み込む（メイン → バックアップの順、失敗したらNoneを返す）"""
+        # メインから読み込み
+        if self.spreadsheet:
+            state = self._load_from_single_sheet(self.spreadsheet, "メイン")
+            if state:
+                return state
 
+        # メインが失敗したらバックアップから読み込み
+        if self.backup_spreadsheet:
+            logger.info("メインGoogle Sheetsから読み込めません。バックアップから復元を試みます。")
+            state = self._load_from_single_sheet(self.backup_spreadsheet, "バックアップ")
+            if state:
+                logger.info(f"バックアップから復元しました: {self.project_name}")
+                return state
+
+        return None
+
+    def _load_from_single_sheet(self, spreadsheet, label: str) -> Optional[Dict[str, Any]]:
+        """指定されたスプレッドシートから状態を読み込む"""
         try:
-            sheet = self.spreadsheet.worksheet("sns_automation_states")
+            sheet = spreadsheet.worksheet("sns_automation_states")
             all_records = sheet.get_all_records()
 
             for record in all_records:
@@ -314,7 +345,8 @@ class StateManager:
             for state_file in self.state_dir.glob("*.json"):
                 projects.add(state_file.stem)
 
-        # Google Sheetsからも取得
+        # Google Sheetsからも取得（メイン → バックアップ）
+        sheets_found = False
         if self.spreadsheet:
             try:
                 sheet = self.spreadsheet.worksheet("sns_automation_states")
@@ -323,8 +355,22 @@ class StateManager:
                     name = record.get("project_name")
                     if name:
                         projects.add(str(name))
+                sheets_found = True
             except Exception as e:
-                logger.warning(f"Google Sheetsからのプロジェクト一覧取得に失敗: {e}")
+                logger.warning(f"メインGoogle Sheetsからのプロジェクト一覧取得に失敗: {e}")
+
+        # メインが失敗した場合、バックアップから取得
+        if not sheets_found and self.backup_spreadsheet:
+            try:
+                sheet = self.backup_spreadsheet.worksheet("sns_automation_states")
+                all_records = sheet.get_all_records()
+                for record in all_records:
+                    name = record.get("project_name")
+                    if name:
+                        projects.add(str(name))
+                logger.info("バックアップGoogle Sheetsからプロジェクト一覧を取得しました")
+            except Exception as e:
+                logger.warning(f"バックアップGoogle Sheetsからのプロジェクト一覧取得に失敗: {e}")
 
         return sorted(projects)
 
