@@ -18,6 +18,7 @@ from sns_automation.utils import (
     IdeaAnalyzer,
     ScriptPreviewer,
     error_helpers,
+    StateManager,
 )
 from sns_automation.chapter3_content import ContentAutomation
 
@@ -739,19 +740,21 @@ def _generate_multiple_scripts(project_name: str, project_state: dict, ideas: li
                     import traceback
                     st.code(traceback.format_exc())
 
-        # 状態ファイルに保存
-        project_state["updated_at"] = datetime.now().isoformat()
-        state_file = Path.home() / ".sns-automation" / "states" / f"{project_name}.json"
+        # StateManagerで状態を保存（ローカル + Google Sheets）
+        with debug_expander:
+            st.write(f"--- StateManagerで保存中 ---")
+            st.write(f"プロジェクト名: {project_name}")
+
+        state_manager = StateManager(project_name)
+        state_manager.save_state(
+            chapter=3,
+            step="script_generation",
+            data=project_state.get("data", {}),
+            metadata=project_state.get("metadata", {}),
+        )
 
         with debug_expander:
-            st.write(f"--- ファイル保存 ---")
-            st.write(f"保存先: {state_file}")
-
-        with open(state_file, "w", encoding="utf-8") as f:
-            json.dump(project_state, f, ensure_ascii=False, indent=2)
-
-        with debug_expander:
-            st.write("→ ファイル保存完了")
+            st.write("→ ローカルファイル + Google Sheetsに保存完了")
 
         progress_bar.progress(100)
         status_text.text("完了！")
@@ -825,12 +828,14 @@ def _generate_ideas(project_name: str, project_state: dict):
                 if "newly_added_start_index" in st.session_state:
                     del st.session_state["newly_added_start_index"]
 
-            project_state["updated_at"] = datetime.now().isoformat()
-
-            # 状態ファイルに保存
-            state_file = Path.home() / ".sns-automation" / "states" / f"{project_name}.json"
-            with open(state_file, "w", encoding="utf-8") as f:
-                json.dump(project_state, f, ensure_ascii=False, indent=2)
+            # StateManagerで状態を保存（ローカル + Google Sheets）
+            state_manager = StateManager(project_name)
+            state_manager.save_state(
+                chapter=3,
+                step="idea_generation",
+                data=project_state.get("data", {}),
+                metadata=project_state.get("metadata", {}),
+            )
 
             progress_bar.progress(100)
             status_text.text("完了！")
