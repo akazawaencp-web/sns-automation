@@ -47,7 +47,7 @@ def get_state_manager(project_name: str = "default"):
 
 
 class StateManager:
-    """セッション状態を管理するクラス"""
+    """セッション状態を管理するクラス（ローカル + Google Sheets）"""
 
     def __init__(self, project_name: str = "default"):
         """
@@ -61,6 +61,42 @@ class StateManager:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.state_file = self.state_dir / f"{project_name}.json"
 
+        # Google Sheets クライアントを初期化（オプショナル）
+        self.sheets_client = None
+        self.spreadsheet = None
+        self._init_sheets()
+
+    def _init_sheets(self) -> None:
+        """Google Sheets APIを初期化（失敗しても続行）"""
+        try:
+            import streamlit as st
+            import gspread
+            from google.oauth2.service_account import Credentials
+
+            # Streamlit Secretsから認証情報を取得
+            if not hasattr(st, "secrets") or "google_service_account" not in st.secrets:
+                logger.info("Google Sheets認証情報が見つかりません（ローカル環境）")
+                return
+
+            service_account_info = dict(st.secrets["google_service_account"])
+            spreadsheet_id = st.secrets["google_sheets"]["spreadsheet_id"]
+
+            # Google Sheets APIに接続
+            scope = [
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ]
+            credentials = Credentials.from_service_account_info(
+                service_account_info, scopes=scope
+            )
+            self.sheets_client = gspread.authorize(credentials)
+            self.spreadsheet = self.sheets_client.open_by_key(spreadsheet_id)
+
+            logger.info("Google Sheets APIの初期化に成功しました")
+
+        except Exception as e:
+            logger.warning(f"Google Sheets APIの初期化に失敗（ローカルファイルのみ使用）: {e}")
+
     def save_state(
         self,
         chapter: int,
@@ -69,7 +105,7 @@ class StateManager:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
-        状態を保存
+        状態を保存（ローカル + Google Sheets）
 
         Args:
             chapter: チャプター番号（1, 3）
@@ -86,28 +122,122 @@ class StateManager:
             "updated_at": datetime.now().isoformat(),
         }
 
+        # ローカルファイルに保存
         with open(self.state_file, "w", encoding="utf-8") as f:
             json.dump(state, f, ensure_ascii=False, indent=2)
 
-        logger.info(f"状態を保存しました: {self.state_file}")
+        logger.info(f"状態をローカルに保存しました: {self.state_file}")
+
+        # Google Sheetsにも保存（失敗しても続行）
+        self._save_to_sheets(state)
+
+    def _save_to_sheets(self, state: Dict[str, Any]) -> None:
+        """Google Sheetsに状態を保存（失敗してもエラーを出さない）"""
+        if not self.spreadsheet:
+            return
+
+        try:
+            # シートを取得または作成
+            try:
+                sheet = self.spreadsheet.worksheet("sns_automation_states")
+            except:
+                sheet = self.spreadsheet.add_worksheet(
+                    title="sns_automation_states", rows=1000, cols=10
+                )
+                # ヘッダー行を追加
+                sheet.append_row([
+                    "project_name", "last_chapter", "last_step",
+                    "data_json", "metadata_json", "updated_at"
+                ])
+
+            # 既存の行を探す
+            all_records = sheet.get_all_records()
+            row_index = None
+            for i, record in enumerate(all_records):
+                if record.get("project_name") == self.project_name:
+                    row_index = i + 2  # ヘッダー行があるので+2
+                    break
+
+            # データをJSON文字列に変換
+            data_json = json.dumps(state["data"], ensure_ascii=False)
+            metadata_json = json.dumps(state["metadata"], ensure_ascii=False)
+
+            row_data = [
+                self.project_name,
+                state["last_chapter"],
+                state["last_step"],
+                data_json,
+                metadata_json,
+                state["updated_at"]
+            ]
+
+            if row_index:
+                # 既存の行を更新
+                sheet.update(f"A{row_index}:F{row_index}", [row_data])
+            else:
+                # 新しい行を追加
+                sheet.append_row(row_data)
+
+            logger.info(f"状態をGoogle Sheetsに保存しました: {self.project_name}")
+
+        except Exception as e:
+            logger.warning(f"Google Sheetsへの保存に失敗（ローカルのみ）: {e}")
 
     def load_state(self) -> Optional[Dict[str, Any]]:
         """
-        状態を読み込む
+        状態を読み込む（Google Sheets → ローカルファイルの順）
 
         Returns:
             状態辞書（存在しない場合はNone）
         """
+        # まずGoogle Sheetsから読み込みを試みる
+        state = self._load_from_sheets()
+        if state:
+            logger.info(f"状態をGoogle Sheetsから読み込みました: {self.project_name}")
+            return state
+
+        # Google Sheetsが使えない場合はローカルファイルから読み込む
         if not self.state_file.exists():
             return None
 
         try:
             with open(self.state_file, "r", encoding="utf-8") as f:
                 state = json.load(f)
-            logger.info(f"状態を読み込みました: {self.state_file}")
+            logger.info(f"状態をローカルファイルから読み込みました: {self.state_file}")
             return state
         except Exception as e:
             logger.error(f"状態の読み込みに失敗しました: {e}")
+            return None
+
+    def _load_from_sheets(self) -> Optional[Dict[str, Any]]:
+        """Google Sheetsから状態を読み込む（失敗したらNoneを返す）"""
+        if not self.spreadsheet:
+            return None
+
+        try:
+            sheet = self.spreadsheet.worksheet("sns_automation_states")
+            all_records = sheet.get_all_records()
+
+            for record in all_records:
+                if record.get("project_name") == self.project_name:
+                    # JSONをパース
+                    data = json.loads(record["data_json"])
+                    metadata = json.loads(record["metadata_json"])
+
+                    state = {
+                        "project_name": self.project_name,
+                        "last_chapter": record["last_chapter"],
+                        "last_step": record["last_step"],
+                        "data": data,
+                        "metadata": metadata,
+                        "updated_at": record["updated_at"],
+                    }
+                    return state
+
+            return None
+
+        except Exception as e:
+            logger.warning(f"Google Sheetsからの読み込みに失敗: {e}")
             return None
 
     def has_state(self) -> bool:
