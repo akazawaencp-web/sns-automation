@@ -6,7 +6,7 @@ Streamlitベースのマルチページアプリケーション
 
 import streamlit as st
 from pathlib import Path
-from sns_automation.utils import StateManager
+from sns_automation.utils import get_state_manager
 
 
 def main():
