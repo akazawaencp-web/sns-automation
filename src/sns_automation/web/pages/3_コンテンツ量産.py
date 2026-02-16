@@ -160,19 +160,15 @@ def main():
 
     st.markdown("---")
 
-    # プロジェクト選択
-    state_dir = Path.home() / ".sns-automation" / "states"
-    state_dir.mkdir(parents=True, exist_ok=True)
+    # プロジェクト選択（StateManager経由でローカル + Google Sheetsの両方から取得）
+    sm = StateManager()
+    project_names = sm.list_all_projects()
 
-    state_files = sorted(state_dir.glob("*.json"))
-
-    if not state_files:
+    if not project_names:
         st.warning("プロジェクトが作成されていません。「アカウント管理」ページから新規作成してください。")
         return
 
     # プロジェクト選択
-    project_names = [f.stem for f in state_files]
-
     selected_project = st.selectbox(
         "プロジェクトを選択",
         project_names,
@@ -183,13 +179,11 @@ def main():
         st.info("プロジェクトを選択してください")
         return
 
-    # 選択したプロジェクトの状態を読み込み
-    state_file = state_dir / f"{selected_project}.json"
+    # 選択したプロジェクトの状態を読み込み（Google Sheets → ローカルの順）
+    state_manager = StateManager(selected_project)
+    project_state = state_manager.load_state()
 
-    try:
-        with open(state_file, "r", encoding="utf-8") as f:
-            project_state = json.load(f)
-    except:
+    if not project_state:
         st.error(f"プロジェクト「{selected_project}」の読み込みに失敗しました")
         return
 

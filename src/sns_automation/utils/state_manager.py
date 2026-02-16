@@ -302,18 +302,29 @@ class StateManager:
 
     def list_all_projects(self) -> list:
         """
-        全てのプロジェクト（アカウント）一覧を取得
+        全てのプロジェクト（アカウント）一覧を取得（ローカル + Google Sheets）
 
         Returns:
             プロジェクト名のリスト
         """
-        if not self.state_dir.exists():
-            return []
+        projects = set()
 
-        projects = []
-        for state_file in self.state_dir.glob("*.json"):
-            project_name = state_file.stem
-            projects.append(project_name)
+        # ローカルファイルから取得
+        if self.state_dir.exists():
+            for state_file in self.state_dir.glob("*.json"):
+                projects.add(state_file.stem)
+
+        # Google Sheetsからも取得
+        if self.spreadsheet:
+            try:
+                sheet = self.spreadsheet.worksheet("sns_automation_states")
+                all_records = sheet.get_all_records()
+                for record in all_records:
+                    name = record.get("project_name")
+                    if name:
+                        projects.add(str(name))
+            except Exception as e:
+                logger.warning(f"Google Sheetsからのプロジェクト一覧取得に失敗: {e}")
 
         return sorted(projects)
 

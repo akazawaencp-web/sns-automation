@@ -20,32 +20,31 @@ from sns_automation.utils import (
 
 def _save_strategy_data(project_name: str, step: int, strategy_data: dict):
     """
-    戦略設計のデータを保存する
+    戦略設計のデータを保存する（StateManager経由でローカル + Google Sheets）
 
     Args:
         project_name: プロジェクト名
         step: 現在のステップ番号
         strategy_data: 戦略データ
     """
-    state_dir = Path.home() / ".sns-automation" / "states"
-    state_file = state_dir / f"{project_name}.json"
-
     # 既存データを読み込む
-    try:
-        with open(state_file, "r", encoding="utf-8") as f:
-            state = json.load(f)
-    except:
-        state = {"project_name": project_name}
+    sm = StateManager(project_name)
+    state = sm.load_state() or {"project_name": project_name, "data": {}, "metadata": {}}
 
     # 戦略データを更新
-    state["strategy"] = strategy_data
-    state["current_step"] = step
-    state["last_chapter"] = 1
-    state["updated_at"] = datetime.now().isoformat()
+    data = state.get("data", {})
+    data["strategy"] = strategy_data
+    data["current_step"] = step
 
-    # 保存
-    with open(state_file, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
+    metadata = state.get("metadata", {})
+
+    # StateManagerで保存（ローカル + Google Sheets）
+    sm.save_state(
+        chapter=1,
+        step="strategy_design",
+        data=data,
+        metadata=metadata,
+    )
 
 
 def main():
@@ -116,19 +115,15 @@ def main():
 
     st.markdown("---")
 
-    # プロジェクト選択
-    state_dir = Path.home() / ".sns-automation" / "states"
-    state_dir.mkdir(parents=True, exist_ok=True)
+    # プロジェクト選択（StateManager経由でローカル + Google Sheetsの両方から取得）
+    sm = StateManager()
+    project_names = sm.list_all_projects()
 
-    state_files = sorted(state_dir.glob("*.json"))
-
-    if not state_files:
+    if not project_names:
         st.warning("プロジェクトが作成されていません。「アカウント管理」ページから新規作成してください。")
         return
 
     # プロジェクト選択
-    project_names = [f.stem for f in state_files]
-
     selected_project = st.selectbox(
         "プロジェクトを選択",
         project_names,
@@ -139,34 +134,32 @@ def main():
         st.info("プロジェクトを選択してください")
         return
 
-    # 選択したプロジェクトの状態を読み込み
-    state_file = state_dir / f"{selected_project}.json"
+    # 選択したプロジェクトの状態を読み込み（Google Sheets → ローカルの順）
+    state_manager = StateManager(selected_project)
+    project_state = state_manager.load_state()
 
-    try:
-        with open(state_file, "r", encoding="utf-8") as f:
-            project_state = json.load(f)
-    except:
+    if not project_state:
         st.error(f"プロジェクト「{selected_project}」の読み込みに失敗しました")
         return
 
     st.success(f"プロジェクト「{selected_project}」を選択中")
 
-    # StateManagerを初期化
-    state_manager = StateManager(selected_project)
+    # StateManager.load_state()のdata内にstrategyとcurrent_stepがある
+    project_data = project_state.get("data", {})
 
     # プロジェクト選択が変更されたか確認
     if "current_project" not in st.session_state or st.session_state.current_project != selected_project:
         st.session_state.current_project = selected_project
-        # プロジェクトが変更されたら、ファイルからデータを読み込む
-        st.session_state.strategy_step = project_state.get("current_step", 1)
-        st.session_state.strategy_data = project_state.get("strategy", {})
+        # プロジェクトが変更されたら、データを読み込む
+        st.session_state.strategy_step = project_data.get("current_step", project_state.get("current_step", 1))
+        st.session_state.strategy_data = project_data.get("strategy", project_state.get("strategy", {}))
 
     # セッション状態の初期化（初回のみ）
     if "strategy_step" not in st.session_state:
-        st.session_state.strategy_step = project_state.get("current_step", 1)
+        st.session_state.strategy_step = project_data.get("current_step", project_state.get("current_step", 1))
 
     if "strategy_data" not in st.session_state:
-        st.session_state.strategy_data = project_state.get("strategy", {})
+        st.session_state.strategy_data = project_data.get("strategy", project_state.get("strategy", {}))
 
     st.markdown("---")
 

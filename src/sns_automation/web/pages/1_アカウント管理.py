@@ -9,6 +9,7 @@ from pathlib import Path
 import json
 from datetime import datetime
 import pandas as pd
+from sns_automation.utils import StateManager
 
 
 def main():
@@ -122,24 +123,17 @@ def main():
                     st.error("プロジェクト名を入力してください")
                 elif not _is_valid_project_name(project_name):
                     st.error("プロジェクト名は半角英数字、ハイフン、アンダースコアのみ使用できます")
-                elif (state_dir / f"{project_name}.json").exists():
+                elif project_name in sm_list.list_all_projects():
                     st.error(f"プロジェクト「{project_name}」は既に存在します")
                 else:
-                    # 初期状態ファイルを作成
-                    initial_state = {
-                        "project_name": project_name,
-                        "description": description,
-                        "last_chapter": 0,
-                        "last_step": "created",
-                        "data": {},
-                        "metadata": {},
-                        "created_at": datetime.now().isoformat(),
-                        "updated_at": datetime.now().isoformat(),
-                    }
-
-                    state_file = state_dir / f"{project_name}.json"
-                    with open(state_file, "w", encoding="utf-8") as f:
-                        json.dump(initial_state, f, ensure_ascii=False, indent=2)
+                    # StateManagerで初期状態を保存（ローカル + Google Sheets）
+                    sm_new = StateManager(project_name)
+                    sm_new.save_state(
+                        chapter=0,
+                        step="created",
+                        data={},
+                        metadata={"description": description, "created_at": datetime.now().isoformat()},
+                    )
 
                     st.success(f"プロジェクト「{project_name}」を作成しました")
                     st.session_state.show_create_dialog = False
@@ -151,10 +145,11 @@ def main():
 
     st.markdown("---")
 
-    # プロジェクト一覧を取得
-    state_files = sorted(state_dir.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True)
+    # プロジェクト一覧を取得（StateManager経由でローカル + Google Sheets）
+    sm_list = StateManager()
+    project_names_all = sm_list.list_all_projects()
 
-    if not state_files:
+    if not project_names_all:
         st.info("プロジェクトがまだ作成されていません。「新規作成」ボタンからプロジェクトを作成してください。")
         return
 
@@ -176,21 +171,22 @@ def main():
             ["更新日時（新しい順）", "更新日時（古い順）", "プロジェクト名（昇順）", "プロジェクト名（降順）"]
         )
 
-    # プロジェクトデータを読み込み
+    # プロジェクトデータを読み込み（StateManager経由）
     projects = []
-    for state_file in state_files:
+    for pname in project_names_all:
         try:
-            with open(state_file, "r", encoding="utf-8") as f:
-                state = json.load(f)
+            sm_item = StateManager(pname)
+            state = sm_item.load_state()
+            if not state:
+                continue
 
             projects.append({
-                "file": state_file,
-                "name": state.get("project_name", state_file.stem),
-                "description": state.get("description", ""),
+                "name": state.get("project_name", pname),
+                "description": state.get("metadata", {}).get("description", state.get("description", "")),
                 "chapter": state.get("last_chapter", 0),
                 "step": state.get("last_step", ""),
                 "updated_at": state.get("updated_at", ""),
-                "created_at": state.get("created_at", ""),
+                "created_at": state.get("metadata", {}).get("created_at", state.get("created_at", "")),
                 "ideas_count": len(state.get("data", {}).get("ideas", [])),
                 "scripts_count": len(state.get("data", {}).get("scripts", [])),
             })
@@ -248,8 +244,9 @@ def main():
             delete_all = st.checkbox("全てのプロジェクトを削除することを理解しました")
 
             if st.button("全てのプロジェクトを削除", disabled=not delete_all, type="primary"):
-                for state_file in state_files:
-                    state_file.unlink()
+                for pname in project_names_all:
+                    sm_del = StateManager(pname)
+                    sm_del.delete_state()
 
                 st.success("全てのプロジェクトを削除しました")
                 st.rerun()
@@ -366,7 +363,8 @@ def _render_project_card(project: dict):
                 st.warning(f"プロジェクト「{project['name']}」を削除しますか？この操作は元に戻せません。")
 
                 if st.button(f"はい、削除します", key=f"confirm_delete_{project['name']}", type="primary"):
-                    project["file"].unlink()
+                    sm_del = StateManager(project['name'])
+                    sm_del.delete_state()
                     st.success(f"プロジェクト「{project['name']}」を削除しました")
                     st.rerun()
 
