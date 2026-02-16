@@ -225,9 +225,8 @@ def _render_step1_basic_info():
             search_keyword = keyword if keyword else "転職を考えている営業職"
 
             try:
-                # 設定を読み込み
-                config = load_config()
-                claude = ClaudeAPI(config)
+                # Claude APIを初期化（Streamlit環境ではst.secretsから自動取得）
+                claude = ClaudeAPI()
 
                 # プロンプトを読み込み
                 prompt_data = load_prompt(

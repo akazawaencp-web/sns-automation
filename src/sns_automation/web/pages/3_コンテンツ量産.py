@@ -663,14 +663,11 @@ def _generate_multiple_scripts(project_name: str, project_state: dict, ideas: li
     error_count = 0
 
     try:
-        # 設定を読み込み
-        config = load_config()
-
         # Chapter 1のデータを取得
         chapter1_data = project_state.get("data", {})
 
-        # ContentAutomationを初期化
-        automation = ContentAutomation(config, project_name=project_name)
+        # ContentAutomationを初期化（Streamlit環境ではst.secretsから自動取得）
+        automation = ContentAutomation(project_name=project_name)
 
         # プログレスバー
         progress_bar = st.progress(0)
@@ -788,9 +785,6 @@ def _generate_ideas(project_name: str, project_state: dict):
     st.subheader("企画生成中...")
 
     try:
-        # 設定を読み込み
-        config = load_config()
-
         # Chapter 1のデータを取得
         chapter1_data = project_state.get("data", {})
 
@@ -801,8 +795,8 @@ def _generate_ideas(project_name: str, project_state: dict):
         status_text.text("企画を生成中...（Claude APIを呼び出しています）")
         progress_bar.progress(10)
 
-        # ContentAutomationを初期化
-        automation = ContentAutomation(config, project_name=project_name)
+        # ContentAutomationを初期化（Streamlit環境ではst.secretsから自動取得）
+        automation = ContentAutomation(project_name=project_name)
 
         progress_bar.progress(20)
 

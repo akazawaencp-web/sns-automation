@@ -10,7 +10,7 @@ Chapter 3: コンテンツ量産の自動化
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 import click
 from rich.console import Console
@@ -39,12 +39,12 @@ console = Console()
 class ContentAutomation:
     """Chapter 3: コンテンツ量産の自動化クラス"""
 
-    def __init__(self, config: Dict[str, Any], project_name: str = "default"):
+    def __init__(self, config: Optional[Dict[str, Any]] = None, project_name: str = "default"):
         """
         初期化
 
         Args:
-            config: 設定辞書
+            config: 設定辞書（省略時はStreamlit環境としてst.secretsから取得）
             project_name: プロジェクト名（アカウント名など）
         """
         self.config = config
@@ -52,13 +52,23 @@ class ContentAutomation:
 
         # Google Sheets API（オプショナル）
         try:
-            self.sheets = SheetsAPI(config)
+            if config is not None:
+                self.sheets = SheetsAPI(config)
+            else:
+                self.sheets = None
+                logger.info("Streamlit環境のため、Google Sheets APIは無効化されています")
         except Exception as e:
             logger.warning(f"Google Sheets APIの初期化に失敗しました: {e}")
             logger.warning("スプレッドシートへの書き込みはスキップされます")
             self.sheets = None
 
-        self.elevenlabs = ElevenLabsAPI(config)
+        # ElevenLabs API（Streamlit環境では無効化）
+        if config is not None:
+            self.elevenlabs = ElevenLabsAPI(config)
+        else:
+            self.elevenlabs = None
+            logger.info("Streamlit環境のため、ElevenLabs APIは無効化されています")
+
         self.state_manager = StateManager(project_name)
         self.project_name = project_name
 

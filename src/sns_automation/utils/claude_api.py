@@ -19,15 +19,22 @@ DEFAULT_MODEL = "claude-opus-4-6"
 class ClaudeAPI:
     """Claude APIのラッパークラス"""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
         初期化
 
         Args:
-            config: 設定辞書
+            config: 設定辞書（省略時はget_api_key()を使用）
         """
-        api_key = config["api_keys"]["claude"]
-        self.model = config.get("claude", {}).get("model", DEFAULT_MODEL)
+        if config is None:
+            # Streamlit環境またはconfig未指定の場合、get_api_key()を使用
+            from .config import get_api_key
+            api_key = get_api_key("claude")
+            self.model = DEFAULT_MODEL
+        else:
+            api_key = config["api_keys"]["claude"]
+            self.model = config.get("claude", {}).get("model", DEFAULT_MODEL)
+
         self.client = anthropic.Anthropic(api_key=api_key)
 
     def generate_text(
