@@ -17,31 +17,16 @@ def get_state_manager(project_name: str = "default"):
     """
     環境に応じた StateManager を取得
 
-    Streamlit環境ではSheetsStateManagerを、
-    ローカル環境ではStateManagerを返す
+    現在は常にStateManagerを返す（SheetsStateManagerは一時的に無効化）
 
     Args:
         project_name: プロジェクト名
 
     Returns:
-        StateManager または SheetsStateManager のインスタンス
+        StateManager のインスタンス
     """
-    try:
-        import streamlit as st
-        if hasattr(st, "secrets") and "google_service_account" in st.secrets:
-            # Streamlit環境 + Google Sheets設定あり
-            try:
-                # SheetsStateManagerをここで初めてインポート（遅延インポート）
-                # これによりgspreadが必要ない環境でもエラーが出ない
-                return SheetsStateManager(project_name)
-            except Exception as e:
-                logger.warning(f"SheetsStateManagerの初期化に失敗: {e}")
-                logger.warning("StateManagerにフォールバックします")
-                return StateManager(project_name)
-    except ImportError:
-        pass
-
-    # ローカル環境
+    # 一旦 SheetsStateManager を無効化
+    # TODO: SheetsStateManager のデバッグ後に有効化
     return StateManager(project_name)
 
 
