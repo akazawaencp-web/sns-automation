@@ -226,8 +226,8 @@ def _render_step1_basic_info():
 
             try:
                 # 設定を読み込み
-                config = load_config()
-                claude = ClaudeAPI(config)
+                # config = load_config()  # Streamlit Cloud対応: 不要
+                claude = ClaudeAPI()
 
                 # プロンプトを読み込み
                 prompt_data = load_prompt(
@@ -371,8 +371,8 @@ def _render_step2_concept_generation():
             with st.spinner("コンセプトを生成中...（約30秒かかります）"):
                 try:
                     # 設定を読み込み
-                    config = load_config()
-                    claude = ClaudeAPI(config)
+                    # config = load_config()  # Streamlit Cloud対応: 不要
+                    claude = ClaudeAPI()
 
                     # プロンプトを読み込み
                     variables = {
@@ -558,8 +558,8 @@ def _render_step3_persona():
             with st.spinner("ペルソナを生成中...（約30秒かかります）"):
                 try:
                     # 設定を読み込み
-                    config = load_config()
-                    claude = ClaudeAPI(config)
+                    # config = load_config()  # Streamlit Cloud対応: 不要
+                    claude = ClaudeAPI()
 
                     # プロンプトを読み込み
                     prompt_data = load_prompt(
@@ -655,8 +655,8 @@ def _render_step4_pains():
         if st.button("Painを自動生成（20個）", type="primary", use_container_width=True):
             with st.spinner("Painを生成中...（約30秒かかります）"):
                 try:
-                    config = load_config()
-                    claude = ClaudeAPI(config)
+                    # config = load_config()  # Streamlit Cloud対応: 不要
+                    claude = ClaudeAPI()
 
                     # ペルソナ情報を取得（文字列として保存されている）
                     persona_text = st.session_state.strategy_data.get("persona", "")
@@ -785,8 +785,8 @@ def _render_step5_usp_future():
             with st.spinner("USP＋Futureを生成中...（約30秒かかります）"):
                 try:
                     # 設定を読み込み
-                    config = load_config()
-                    claude = ClaudeAPI(config)
+                    # config = load_config()  # Streamlit Cloud対応: 不要
+                    claude = ClaudeAPI()
 
                     # Painリストを整形
                     pains = st.session_state.strategy_data.get("pains", [])
@@ -890,8 +890,8 @@ def _render_step6_profile():
         if st.button("プロフィール文を生成（3案）", type="primary", use_container_width=True):
             with st.spinner("プロフィール文を生成中...（約20秒かかります）"):
                 try:
-                    config = load_config()
-                    claude = ClaudeAPI(config)
+                    # config = load_config()  # Streamlit Cloud対応: 不要
+                    claude = ClaudeAPI()
 
                     prompt_data = load_prompt(
                         chapter="chapter1",
