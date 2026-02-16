@@ -72,6 +72,24 @@ def load_config(config_path: Optional[Path] = None, force_reload: bool = False) 
     if _config_cache is not None and not force_reload:
         return _config_cache
 
+    # Streamlit環境でconfig.yamlが無い場合はデフォルト設定を返す
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets"):
+            # Streamlit環境の場合、最小限の設定で起動
+            _config_cache = {
+                "api_keys": {},
+                "google_sheets": {
+                    "credentials_path": "",
+                    "default_spreadsheet_id": "",
+                    "sheets": {}
+                },
+                "paths": {}
+            }
+            return _config_cache
+    except ImportError:
+        pass
+
     # 設定ファイルを検索
     if config_path is None:
         config_path = find_config_file()
@@ -132,7 +150,20 @@ def get_config() -> Dict[str, Any]:
     global _config_cache
 
     if _config_cache is None:
-        raise RuntimeError("設定が読み込まれていません。load_config()を先に実行してください")
+        # 自動的に読み込みを試みる
+        try:
+            load_config()
+        except FileNotFoundError:
+            # Streamlit環境でconfig.yamlが無い場合はデフォルト設定を返す
+            _config_cache = {
+                "api_keys": {},
+                "google_sheets": {
+                    "credentials_path": "",
+                    "default_spreadsheet_id": "",
+                    "sheets": {}
+                },
+                "paths": {}
+            }
 
     return _config_cache
 
@@ -150,6 +181,17 @@ def get_api_key(service: str) -> str:
     Raises:
         ValueError: API Keyが設定されていない場合
     """
+    # Streamlit環境では st.secrets から優先的に取得
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and "api_keys" in st.secrets:
+            api_keys = st.secrets["api_keys"]
+            if service in api_keys:
+                return api_keys[service]
+    except (ImportError, FileNotFoundError, KeyError):
+        pass  # Streamlit環境でない、またはsecretsが設定されていない
+
+    # config.yamlから取得（ローカル環境）
     config = get_config()
     api_keys = config.get("api_keys", {})
 
