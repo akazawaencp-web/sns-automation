@@ -16,6 +16,7 @@ from sns_automation.utils import (
     StateManager,
     error_helpers,
 )
+from sns_automation.web.components import render_feedback_form
 
 
 def _save_strategy_data(project_name: str, step: int, strategy_data: dict):
@@ -109,6 +110,9 @@ def main():
         }
         </style>
     """, unsafe_allow_html=True)
+
+    # フィードバックフォーム
+    render_feedback_form()
 
     st.markdown('<div class="page-header">戦略設計</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">ステップバイステップで戦略を設計します。各項目を入力して、自動生成を活用してください。</div>', unsafe_allow_html=True)

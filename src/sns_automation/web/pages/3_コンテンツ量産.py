@@ -21,6 +21,7 @@ from sns_automation.utils import (
     StateManager,
 )
 from sns_automation.chapter3_content import ContentAutomation
+from sns_automation.web.components import render_feedback_form
 
 
 def _create_copy_button(text: str, button_text: str = "📋 コピー", key: str = None):
@@ -154,6 +155,9 @@ def main():
         }
         </style>
     """, unsafe_allow_html=True)
+
+    # フィードバックフォーム
+    render_feedback_form()
 
     st.markdown('<div class="page-header">コンテンツ量産</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">企画を生成して、複数選択で一括台本作成。効率的なワークフロー。</div>', unsafe_allow_html=True)

@@ -10,6 +10,7 @@ import json
 from datetime import datetime
 import pandas as pd
 from sns_automation.utils import StateManager
+from sns_automation.web.components import render_feedback_form
 
 
 def main():
@@ -69,6 +70,9 @@ def main():
         }
         </style>
     """, unsafe_allow_html=True)
+
+    # フィードバックフォーム
+    render_feedback_form()
 
     st.markdown('<div class="page-header">アカウント管理</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">最大60アカウントを一元管理。進捗状況を可視化し、効率的な運用をサポート。</div>', unsafe_allow_html=True)

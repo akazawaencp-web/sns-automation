@@ -7,6 +7,7 @@ Streamlitベースのマルチページアプリケーション
 import streamlit as st
 from pathlib import Path
 from sns_automation.utils import StateManager
+from sns_automation.web.components import render_feedback_form
 
 
 def main():
@@ -327,6 +328,9 @@ def main():
         </ol>
     </div>
     """, unsafe_allow_html=True)
+
+    # フィードバックフォーム
+    render_feedback_form()
 
     # フッター
     st.markdown("---")
