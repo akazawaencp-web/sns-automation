@@ -13,6 +13,31 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
+def get_state_manager(project_name: str = "default"):
+    """
+    環境に応じた StateManager を取得
+
+    Streamlit環境ではSheetsStateManagerを、
+    ローカル環境ではStateManagerを返す
+
+    Args:
+        project_name: プロジェクト名
+
+    Returns:
+        StateManager または SheetsStateManager のインスタンス
+    """
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and "google_service_account" in st.secrets:
+            # Streamlit環境 + Google Sheets設定あり
+            return SheetsStateManager(project_name)
+    except ImportError:
+        pass
+
+    # ローカル環境
+    return StateManager(project_name)
+
+
 class StateManager:
     """セッション状態を管理するクラス"""
 
@@ -153,3 +178,287 @@ class StateManager:
             projects.append(project_name)
 
         return sorted(projects)
+
+
+class SheetsStateManager:
+    """
+    Google Sheetsを使った状態管理クラス（Streamlit Cloud用）
+
+    StateManagerと同じインターフェースを提供し、
+    データをGoogle Sheetsに保存する
+    """
+
+    def __init__(self, project_name: str = "default"):
+        """
+        初期化
+
+        Args:
+            project_name: プロジェクト名（アカウント名など）
+        """
+        self.project_name = project_name
+
+        try:
+            import streamlit as st
+            import gspread
+            from google.oauth2.service_account import Credentials
+
+            # Streamlit Secretsから認証情報を取得
+            service_account_info = dict(st.secrets["google_service_account"])
+            spreadsheet_id = st.secrets["google_sheets"]["spreadsheet_id"]
+
+            # Google Sheets APIに接続
+            scope = [
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ]
+            credentials = Credentials.from_service_account_info(
+                service_account_info, scopes=scope
+            )
+            self.client = gspread.authorize(credentials)
+            self.spreadsheet = self.client.open_by_key(spreadsheet_id)
+
+            # シートを取得または作成
+            try:
+                self.projects_sheet = self.spreadsheet.worksheet("projects")
+            except gspread.exceptions.WorksheetNotFound:
+                self.projects_sheet = self.spreadsheet.add_worksheet(
+                    title="projects", rows=1000, cols=10
+                )
+                # ヘッダー行を追加
+                self.projects_sheet.append_row(
+                    ["project_name", "last_chapter", "last_step", "updated_at"]
+                )
+
+            try:
+                self.data_sheet = self.spreadsheet.worksheet("project_data")
+            except gspread.exceptions.WorksheetNotFound:
+                self.data_sheet = self.spreadsheet.add_worksheet(
+                    title="project_data", rows=1000, cols=5
+                )
+                # ヘッダー行を追加
+                self.data_sheet.append_row(
+                    ["project_name", "data_json", "metadata_json"]
+                )
+
+            logger.info(f"Google Sheets StateManagerを初期化しました: {project_name}")
+
+        except Exception as e:
+            logger.error(f"Google Sheets StateManagerの初期化に失敗: {e}")
+            raise
+
+    def save_state(
+        self,
+        chapter: int,
+        step: str,
+        data: Dict[str, Any],
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        状態をGoogle Sheetsに保存
+
+        Args:
+            chapter: チャプター番号
+            step: ステップ名
+            data: 保存するデータ
+            metadata: 追加のメタデータ
+        """
+        try:
+            updated_at = datetime.now().isoformat()
+
+            # projectsシートを更新
+            all_records = self.projects_sheet.get_all_records()
+            row_index = None
+
+            for i, record in enumerate(all_records):
+                if record.get("project_name") == self.project_name:
+                    row_index = i + 2  # ヘッダー行があるので+2
+
+            if row_index:
+                # 既存の行を更新
+                self.projects_sheet.update(
+                    f"A{row_index}:D{row_index}",
+                    [[self.project_name, chapter, step, updated_at]],
+                )
+            else:
+                # 新しい行を追加
+                self.projects_sheet.append_row(
+                    [self.project_name, chapter, step, updated_at]
+                )
+
+            # project_dataシートを更新
+            data_json = json.dumps(data, ensure_ascii=False)
+            metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
+
+            all_data_records = self.data_sheet.get_all_records()
+            data_row_index = None
+
+            for i, record in enumerate(all_data_records):
+                if record.get("project_name") == self.project_name:
+                    data_row_index = i + 2
+
+            if data_row_index:
+                self.data_sheet.update(
+                    f"A{data_row_index}:C{data_row_index}",
+                    [[self.project_name, data_json, metadata_json]],
+                )
+            else:
+                self.data_sheet.append_row(
+                    [self.project_name, data_json, metadata_json]
+                )
+
+            logger.info(f"状態をGoogle Sheetsに保存しました: {self.project_name}")
+
+        except Exception as e:
+            logger.error(f"Google Sheetsへの保存に失敗: {e}")
+            raise
+
+    def load_state(self) -> Optional[Dict[str, Any]]:
+        """
+        Google Sheetsから状態を読み込む
+
+        Returns:
+            状態辞書（存在しない場合はNone）
+        """
+        try:
+            # projectsシートから基本情報を取得
+            all_records = self.projects_sheet.get_all_records()
+            project_record = None
+
+            for record in all_records:
+                if record.get("project_name") == self.project_name:
+                    project_record = record
+                    break
+
+            if not project_record:
+                return None
+
+            # project_dataシートからデータを取得
+            all_data_records = self.data_sheet.get_all_records()
+            data_record = None
+
+            for record in all_data_records:
+                if record.get("project_name") == self.project_name:
+                    data_record = record
+                    break
+
+            if not data_record:
+                return None
+
+            # JSONをパース
+            data = json.loads(data_record["data_json"])
+            metadata = json.loads(data_record["metadata_json"])
+
+            state = {
+                "project_name": self.project_name,
+                "last_chapter": project_record["last_chapter"],
+                "last_step": project_record["last_step"],
+                "data": data,
+                "metadata": metadata,
+                "updated_at": project_record["updated_at"],
+            }
+
+            logger.info(f"状態をGoogle Sheetsから読み込みました: {self.project_name}")
+            return state
+
+        except Exception as e:
+            logger.error(f"Google Sheetsからの読み込みに失敗: {e}")
+            return None
+
+    def has_state(self) -> bool:
+        """
+        保存された状態が存在するかチェック
+
+        Returns:
+            存在する場合True
+        """
+        try:
+            all_records = self.projects_sheet.get_all_records()
+            for record in all_records:
+                if record.get("project_name") == self.project_name:
+                    return True
+            return False
+        except Exception as e:
+            logger.error(f"状態の存在チェックに失敗: {e}")
+            return False
+
+    def delete_state(self) -> None:
+        """状態を削除"""
+        try:
+            # projectsシートから削除
+            all_records = self.projects_sheet.get_all_records()
+            for i, record in enumerate(all_records):
+                if record.get("project_name") == self.project_name:
+                    self.projects_sheet.delete_rows(i + 2)
+                    break
+
+            # project_dataシートから削除
+            all_data_records = self.data_sheet.get_all_records()
+            for i, record in enumerate(all_data_records):
+                if record.get("project_name") == self.project_name:
+                    self.data_sheet.delete_rows(i + 2)
+                    break
+
+            logger.info(f"状態をGoogle Sheetsから削除しました: {self.project_name}")
+
+        except Exception as e:
+            logger.error(f"Google Sheetsからの削除に失敗: {e}")
+
+    def get_summary(self) -> Optional[str]:
+        """
+        状態のサマリーを取得
+
+        Returns:
+            サマリー文字列（存在しない場合はNone）
+        """
+        state = self.load_state()
+        if not state:
+            return None
+
+        chapter = state.get("last_chapter")
+        step = state.get("last_step")
+        updated_at = state.get("updated_at", "")
+
+        # 日時をフォーマット
+        try:
+            dt = datetime.fromisoformat(updated_at)
+            formatted_date = dt.strftime("%Y-%m-%d %H:%M")
+        except:
+            formatted_date = updated_at
+
+        # ステップ名を日本語に変換
+        step_names = {
+            "user_input": "基本情報収集",
+            "concept_generation": "コンセプト20案生成",
+            "persona_definition": "ペルソナ定義",
+            "pain_extraction": "脳内独り言抽出",
+            "usp_future_definition": "USP & Future定義",
+            "profile_creation": "プロフィール文作成",
+            "final_check": "最終確認リスト",
+            "idea_generation": "企画生成",
+            "script_generation": "台本生成",
+        }
+
+        step_name_jp = step_names.get(step, step)
+
+        summary = (
+            f"プロジェクト: {self.project_name}\n"
+            f"最終更新: {formatted_date}\n"
+            f"進捗: Chapter {chapter} - {step_name_jp}"
+        )
+
+        return summary
+
+    def list_all_projects(self) -> list:
+        """
+        全てのプロジェクト（アカウント）一覧を取得
+
+        Returns:
+            プロジェクト名のリスト
+        """
+        try:
+            all_records = self.projects_sheet.get_all_records()
+            projects = [record["project_name"] for record in all_records]
+            return sorted(projects)
+        except Exception as e:
+            logger.error(f"プロジェクト一覧の取得に失敗: {e}")
+            return []
