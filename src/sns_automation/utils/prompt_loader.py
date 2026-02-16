@@ -124,6 +124,10 @@ class PromptLoader:
         Raises:
             KeyError: プロンプトが見つからない場合
         """
+        if chapter not in self.prompts or prompt_name not in self.prompts.get(chapter, {}):
+            # キャッシュが古い可能性があるため、テンプレートを再読み込みして再試行
+            self.reload()
+
         if chapter not in self.prompts:
             raise KeyError(f"チャプター '{chapter}' が見つかりません")
 
