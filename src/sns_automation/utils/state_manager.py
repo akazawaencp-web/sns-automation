@@ -30,7 +30,14 @@ def get_state_manager(project_name: str = "default"):
         import streamlit as st
         if hasattr(st, "secrets") and "google_service_account" in st.secrets:
             # Streamlit環境 + Google Sheets設定あり
-            return SheetsStateManager(project_name)
+            try:
+                # SheetsStateManagerをここで初めてインポート（遅延インポート）
+                # これによりgspreadが必要ない環境でもエラーが出ない
+                return SheetsStateManager(project_name)
+            except Exception as e:
+                logger.warning(f"SheetsStateManagerの初期化に失敗: {e}")
+                logger.warning("StateManagerにフォールバックします")
+                return StateManager(project_name)
     except ImportError:
         pass
 
