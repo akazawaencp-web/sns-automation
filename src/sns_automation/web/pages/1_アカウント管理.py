@@ -257,74 +257,55 @@ def main():
     if projects:
         _render_project_table(projects)
 
-    # アーカイブ済みセクション
-    if archived_projects:
-        with st.expander(f"アーカイブ済み（{len(archived_projects)}件）"):
-            _render_project_table(archived_projects, greyed_out=True)
-            st.markdown("")
-            restore_target = st.selectbox(
-                "復元するプロジェクト",
-                ["選択してください"] + [p["name"] for p in archived_projects],
-                key="restore_target",
-            )
-            if restore_target != "選択してください":
-                if st.button(f"「{restore_target}」を戻す", key="restore_btn"):
-                    sm_restore = StateManager(restore_target)
-                    state = sm_restore.load_state()
-                    if state:
-                        metadata = state.get("metadata", {})
-                        metadata["archived"] = False
-                        sm_restore.save_state(
-                            chapter=state.get("last_chapter", 0),
-                            step=state.get("last_step", ""),
-                            data=state.get("data", {}),
-                            metadata=metadata,
-                        )
-                        st.success(f"「{restore_target}」を復元しました")
-                        st.rerun()
-
-    st.markdown("---")
-
-    # プロジェクトの管理（アーカイブ + 削除）
-    with st.expander("プロジェクトの管理"):
-        mgmt_col1, mgmt_col2 = st.columns(2)
-
-        with mgmt_col1:
-            st.markdown("**アーカイブする**")
-            archive_target = st.selectbox(
-                "アーカイブするプロジェクト",
-                ["選択してください"] + [p["name"] for p in active_projects],
-                key="archive_target",
-            )
-            if archive_target != "選択してください":
-                if st.button(f"「{archive_target}」をアーカイブ", key="archive_btn"):
-                    sm_archive = StateManager(archive_target)
-                    state = sm_archive.load_state()
+    # 非表示にする（複数選択）
+    with st.expander("非表示にする"):
+        hide_targets = st.multiselect(
+            "非表示にするプロジェクトを選択",
+            [p["name"] for p in active_projects],
+            key="hide_targets",
+        )
+        if hide_targets:
+            if st.button(f"{len(hide_targets)}件を非表示にする", key="hide_btn"):
+                for target in hide_targets:
+                    sm_hide = StateManager(target)
+                    state = sm_hide.load_state()
                     if state:
                         metadata = state.get("metadata", {})
                         metadata["archived"] = True
-                        sm_archive.save_state(
+                        sm_hide.save_state(
                             chapter=state.get("last_chapter", 0),
                             step=state.get("last_step", ""),
                             data=state.get("data", {}),
                             metadata=metadata,
                         )
-                        st.success(f"「{archive_target}」をアーカイブしました")
-                        st.rerun()
+                st.success(f"{len(hide_targets)}件を非表示にしました")
+                st.rerun()
 
-        with mgmt_col2:
-            st.markdown("**削除する**")
-            all_project_names = [p["name"] for p in active_projects] + [p["name"] for p in archived_projects]
-            delete_target = st.selectbox(
-                "削除するプロジェクト",
-                ["選択してください"] + all_project_names,
-                key="delete_target",
+    # 非表示セクション
+    if archived_projects:
+        with st.expander(f"非表示（{len(archived_projects)}件）"):
+            _render_project_table(archived_projects, greyed_out=True)
+            st.markdown("")
+            show_targets = st.multiselect(
+                "表示に戻すプロジェクトを選択",
+                [p["name"] for p in archived_projects],
+                key="show_targets",
             )
-            if delete_target != "選択してください":
-                if st.button(f"「{delete_target}」を削除", type="primary", key="delete_btn"):
-                    sm_del = StateManager(delete_target)
-                    sm_del.delete_state()
-                    st.success(f"「{delete_target}」を削除しました")
+            if show_targets:
+                if st.button(f"{len(show_targets)}件を表示に戻す", key="show_btn"):
+                    for target in show_targets:
+                        sm_show = StateManager(target)
+                        state = sm_show.load_state()
+                        if state:
+                            metadata = state.get("metadata", {})
+                            metadata["archived"] = False
+                            sm_show.save_state(
+                                chapter=state.get("last_chapter", 0),
+                                step=state.get("last_step", ""),
+                                data=state.get("data", {}),
+                                metadata=metadata,
+                            )
+                    st.success(f"{len(show_targets)}件を表示に戻しました")
                     st.rerun()
 
 
