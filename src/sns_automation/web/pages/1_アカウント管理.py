@@ -103,10 +103,16 @@ def main():
             with st.form("create_project_form"):
                 st.subheader("新規プロジェクト作成")
 
-                # プロジェクト名を自動生成
+                # 担当者選択
+                members = ["Ryoji", "Futa", "Maho", "Toshi"]
+                owner = st.selectbox("担当者", members)
+
+                # プロジェクト名を自動生成（担当者名-連番）
                 existing_projects = StateManager().list_all_projects()
-                next_num = len(existing_projects) + 1
-                default_name = f"account-{next_num:02d}"
+                owner_lower = owner.lower()
+                owner_projects = [p for p in existing_projects if p.startswith(f"{owner_lower}-")]
+                next_num = len(owner_projects) + 1
+                default_name = f"{owner_lower}-account-{next_num:02d}"
 
                 project_name = st.text_input(
                     "プロジェクト名",
@@ -136,7 +142,7 @@ def main():
                         chapter=0,
                         step="created",
                         data={},
-                        metadata={"created_at": datetime.now().isoformat()},
+                        metadata={"owner": owner, "created_at": datetime.now().isoformat()},
                     )
 
                     st.success(f"プロジェクト「{project_name}」を作成しました")
