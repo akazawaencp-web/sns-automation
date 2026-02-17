@@ -153,8 +153,7 @@ def main():
         return
 
     # プロジェクトデータを読み込み（StateManager経由）
-    active_projects = []
-    archived_projects = []
+    all_projects = []
     all_owners = set()
     for pname in project_names_all:
         try:
@@ -179,19 +178,18 @@ def main():
             if owner:
                 all_owners.add(owner)
 
-            project_data = {
+            # 終了フラグ（archived=True or ended=True）
+            ended = metadata.get("ended", False) or metadata.get("archived", False)
+
+            all_projects.append({
                 "name": state.get("project_name", pname),
                 "summary": summary,
                 "owner": owner,
                 "chapter": state.get("last_chapter", 0),
                 "step": state.get("last_step", ""),
                 "updated_at": state.get("updated_at", ""),
-            }
-
-            if metadata.get("archived", False):
-                archived_projects.append(project_data)
-            else:
-                active_projects.append(project_data)
+                "ended": ended,
+            })
         except:
             continue
 
@@ -208,7 +206,7 @@ def main():
     with col3:
         filter_status = st.selectbox(
             "状態でフィルター",
-            ["全て", "未着手", "戦略設計済み", "コンテンツ生成済み"]
+            ["全て（終了除く）", "全て（終了含む）", "未着手", "戦略設計済み", "コンテンツ生成済み", "終了"]
         )
 
     with col4:
@@ -221,7 +219,7 @@ def main():
             ]
         )
 
-    projects = active_projects
+    projects = all_projects
 
     # フィルタリング
     if search_query:
@@ -230,12 +228,18 @@ def main():
     if filter_owner != "全員":
         projects = [p for p in projects if p["owner"] == filter_owner]
 
-    if filter_status == "未着手":
-        projects = [p for p in projects if p["chapter"] == 0]
+    if filter_status == "全て（終了除く）":
+        projects = [p for p in projects if not p["ended"]]
+    elif filter_status == "全て（終了含む）":
+        pass  # 全件表示
+    elif filter_status == "未着手":
+        projects = [p for p in projects if p["chapter"] == 0 and not p["ended"]]
     elif filter_status == "戦略設計済み":
-        projects = [p for p in projects if p["chapter"] == 1]
+        projects = [p for p in projects if p["chapter"] == 1 and not p["ended"]]
     elif filter_status == "コンテンツ生成済み":
-        projects = [p for p in projects if p["chapter"] == 3]
+        projects = [p for p in projects if p["chapter"] == 3 and not p["ended"]]
+    elif filter_status == "終了":
+        projects = [p for p in projects if p["ended"]]
 
     # ソート
     if sort_by == "更新日時（新しい順）":
@@ -257,60 +261,57 @@ def main():
     if projects:
         _render_project_table(projects)
 
-    # 表示の管理（非表示にする / 非表示から戻す を1つのセクションに）
-    hidden_count = len(archived_projects)
-    expander_label = f"表示の管理（非表示: {hidden_count}件）" if hidden_count else "表示の管理"
-    with st.expander(expander_label):
-        # 非表示にする
-        st.markdown("**一覧から非表示にする**")
-        hide_targets = st.multiselect(
-            "非表示にするプロジェクトを選択",
-            [p["name"] for p in active_projects],
-            key="hide_targets",
+    # 終了にする / 終了を解除する
+    non_ended = [p for p in all_projects if not p["ended"]]
+    ended = [p for p in all_projects if p["ended"]]
+
+    with st.expander("終了にする"):
+        end_targets = st.multiselect(
+            "終了にするプロジェクトを選択",
+            [p["name"] for p in non_ended],
+            key="end_targets",
         )
-        if hide_targets:
-            if st.button(f"{len(hide_targets)}件を非表示にする", key="hide_btn"):
-                for target in hide_targets:
-                    sm_hide = StateManager(target)
-                    state = sm_hide.load_state()
+        if end_targets:
+            if st.button(f"{len(end_targets)}件を終了にする", key="end_btn"):
+                for target in end_targets:
+                    sm_end = StateManager(target)
+                    state = sm_end.load_state()
                     if state:
                         metadata = state.get("metadata", {})
-                        metadata["archived"] = True
-                        sm_hide.save_state(
+                        metadata["ended"] = True
+                        sm_end.save_state(
                             chapter=state.get("last_chapter", 0),
                             step=state.get("last_step", ""),
                             data=state.get("data", {}),
                             metadata=metadata,
                         )
-                st.success(f"{len(hide_targets)}件を非表示にしました")
+                st.success(f"{len(end_targets)}件を終了にしました")
                 st.rerun()
 
-        # 非表示中のプロジェクトを表示に戻す
-        if archived_projects:
+        if ended:
             st.markdown("---")
-            st.markdown(f"**非表示中（{hidden_count}件）**")
-            _render_project_table(archived_projects, greyed_out=True)
-            st.markdown("")
-            show_targets = st.multiselect(
-                "表示に戻すプロジェクトを選択",
-                [p["name"] for p in archived_projects],
-                key="show_targets",
+            st.markdown(f"**終了済み（{len(ended)}件）**")
+            reopen_targets = st.multiselect(
+                "終了を解除するプロジェクトを選択",
+                [p["name"] for p in ended],
+                key="reopen_targets",
             )
-            if show_targets:
-                if st.button(f"{len(show_targets)}件を表示に戻す", key="show_btn"):
-                    for target in show_targets:
-                        sm_show = StateManager(target)
-                        state = sm_show.load_state()
+            if reopen_targets:
+                if st.button(f"{len(reopen_targets)}件の終了を解除", key="reopen_btn"):
+                    for target in reopen_targets:
+                        sm_reopen = StateManager(target)
+                        state = sm_reopen.load_state()
                         if state:
                             metadata = state.get("metadata", {})
-                            metadata["archived"] = False
-                            sm_show.save_state(
+                            metadata["ended"] = False
+                            metadata.pop("archived", None)
+                            sm_reopen.save_state(
                                 chapter=state.get("last_chapter", 0),
                                 step=state.get("last_step", ""),
                                 data=state.get("data", {}),
                                 metadata=metadata,
                             )
-                    st.success(f"{len(show_targets)}件を表示に戻しました")
+                    st.success(f"{len(reopen_targets)}件の終了を解除しました")
                     st.rerun()
 
 
@@ -321,7 +322,7 @@ def _clean_summary(text: str) -> str:
     return text.replace("*", "").replace("#", "").strip()
 
 
-def _render_project_table(projects: list, greyed_out: bool = False):
+def _render_project_table(projects: list):
     """プロジェクト一覧をスタイル付きHTMLテーブルで描画"""
 
     status_styles = {
@@ -329,12 +330,16 @@ def _render_project_table(projects: list, greyed_out: bool = False):
         1: ("戦略設計済み", "#f59e0b", "rgba(245,158,11,0.1)"),
         3: ("コンテンツ生成済み", "#10b981", "rgba(16,185,129,0.1)"),
     }
+    ended_status = ("終了", "#6b7280", "rgba(107,114,128,0.1)")
     default_status = ("進行中", "#3b82f6", "rgba(59,130,246,0.1)")
 
     rows = []
     for p in projects:
         chapter = p["chapter"]
-        s_label, s_color, s_bg = status_styles.get(chapter, default_status)
+        if p.get("ended"):
+            s_label, s_color, s_bg = ended_status
+        else:
+            s_label, s_color, s_bg = status_styles.get(chapter, default_status)
         name = html_escape(p["name"])
         owner = html_escape(p.get("owner", "")) or '<span style="color:#ccc;">-</span>'
         summary = html_escape(_clean_summary(p["summary"])) if p["summary"] else '<span style="color:#ccc;">-</span>'
@@ -353,24 +358,20 @@ def _render_project_table(projects: list, greyed_out: bool = False):
 
     th_style = "padding:0.9rem 1rem;font-size:0.8rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.05em;border-bottom:2px solid rgba(234,135,104,0.15);"
 
-    wrap_class = "proj-table-wrap-archived" if greyed_out else "proj-table-wrap"
-    opacity_style = "opacity:0.5;" if greyed_out else ""
-
     st.markdown(
         "<style>"
-        ".proj-table-wrap,.proj-table-wrap-archived{border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.04),0 4px 16px rgba(0,0,0,0.06);border:1px solid rgba(0,0,0,0.06);background:white;}"
-        ".proj-table-wrap table,.proj-table-wrap-archived table{width:100%;border-collapse:collapse;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}"
-        ".proj-table-wrap thead tr,.proj-table-wrap-archived thead tr{background:linear-gradient(135deg,rgba(234,135,104,0.08) 0%,rgba(51,182,222,0.08) 100%);}"
-        ".proj-table-wrap tbody tr,.proj-table-wrap-archived tbody tr{transition:background-color 0.2s ease;}"
-        ".proj-table-wrap tbody tr:hover,.proj-table-wrap-archived tbody tr:hover{background-color:rgba(234,135,104,0.04);}"
-        ".proj-table-wrap tbody tr:not(:last-child) td,.proj-table-wrap-archived tbody tr:not(:last-child) td{border-bottom:1px solid rgba(0,0,0,0.04);}"
-        ".proj-table-wrap-archived{opacity:0.5;}"
+        ".proj-table-wrap{border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.04),0 4px 16px rgba(0,0,0,0.06);border:1px solid rgba(0,0,0,0.06);background:white;}"
+        ".proj-table-wrap table{width:100%;border-collapse:collapse;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}"
+        ".proj-table-wrap thead tr{background:linear-gradient(135deg,rgba(234,135,104,0.08) 0%,rgba(51,182,222,0.08) 100%);}"
+        ".proj-table-wrap tbody tr{transition:background-color 0.2s ease;}"
+        ".proj-table-wrap tbody tr:hover{background-color:rgba(234,135,104,0.04);}"
+        ".proj-table-wrap tbody tr:not(:last-child) td{border-bottom:1px solid rgba(0,0,0,0.04);}"
         "</style>",
         unsafe_allow_html=True,
     )
 
     st.markdown(
-        f'<div class="{wrap_class}" style="{opacity_style}"><table>'
+        '<div class="proj-table-wrap"><table>'
         f'<thead><tr>'
         f'<th style="{th_style}text-align:left;">アカウント名</th>'
         f'<th style="{th_style}text-align:left;">担当者</th>'
