@@ -7,7 +7,7 @@
 import streamlit as st
 from pathlib import Path
 from datetime import datetime
-import pandas as pd
+from html import escape as html_escape
 from sns_automation.utils import StateManager
 from sns_automation.web.components import render_feedback_form
 
@@ -226,38 +226,7 @@ def main():
     st.markdown(f"**{len(projects)}件のプロジェクト**")
 
     if projects:
-        # テーブルデータを作成
-        table_data = []
-        for p in projects:
-            chapter = p["chapter"]
-            if chapter == 0:
-                status = "未着手"
-            elif chapter == 1:
-                status = "戦略設計済み"
-            elif chapter == 3:
-                status = "コンテンツ生成済み"
-            else:
-                status = "進行中"
-
-            table_data.append({
-                "アカウント名": p["name"],
-                "概要": p["summary"] if p["summary"] else "-",
-                "ステータス": status,
-                "更新日": _format_datetime(p["updated_at"]),
-            })
-
-        df = pd.DataFrame(table_data)
-        st.dataframe(
-            df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "アカウント名": st.column_config.TextColumn(width="medium"),
-                "概要": st.column_config.TextColumn(width="large"),
-                "ステータス": st.column_config.TextColumn(width="small"),
-                "更新日": st.column_config.TextColumn(width="small"),
-            },
-        )
+        _render_project_table(projects)
 
     st.markdown("---")
 
@@ -274,6 +243,107 @@ def main():
                 sm_del.delete_state()
                 st.success(f"プロジェクト「{delete_target}」を削除しました")
                 st.rerun()
+
+
+def _clean_summary(text: str) -> str:
+    """概要テキストからアスタリスク等のマークダウン記号を除去"""
+    if not text:
+        return ""
+    return text.replace("*", "").replace("#", "").strip()
+
+
+def _render_project_table(projects: list):
+    """プロジェクト一覧をスタイル付きHTMLテーブルで描画"""
+
+    # ステータスバッジのスタイル定義
+    status_styles = {
+        0: ("未着手", "#94a3b8", "rgba(148, 163, 184, 0.1)"),
+        1: ("戦略設計済み", "#f59e0b", "rgba(245, 158, 11, 0.1)"),
+        3: ("コンテンツ生成済み", "#10b981", "rgba(16, 185, 129, 0.1)"),
+    }
+    default_status = ("進行中", "#3b82f6", "rgba(59, 130, 246, 0.1)")
+
+    # テーブル行を生成
+    rows_html = ""
+    for p in projects:
+        chapter = p["chapter"]
+        status_label, badge_color, badge_bg = status_styles.get(chapter, default_status)
+
+        name = html_escape(p["name"])
+        summary = html_escape(_clean_summary(p["summary"])) if p["summary"] else '<span style="color: #ccc;">-</span>'
+        updated = _format_datetime(p["updated_at"])
+
+        rows_html += f"""
+        <tr>
+            <td style="padding: 0.85rem 1rem; font-weight: 600; color: #1e293b; white-space: nowrap;">
+                {name}
+            </td>
+            <td style="padding: 0.85rem 1rem; color: #64748b; font-size: 0.9rem; max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                {summary}
+            </td>
+            <td style="padding: 0.85rem 1rem; text-align: center;">
+                <span style="
+                    display: inline-block;
+                    padding: 0.3rem 0.85rem;
+                    border-radius: 20px;
+                    font-size: 0.8rem;
+                    font-weight: 600;
+                    color: {badge_color};
+                    background: {badge_bg};
+                    border: 1px solid {badge_color}20;
+                ">{status_label}</span>
+            </td>
+            <td style="padding: 0.85rem 1rem; color: #94a3b8; font-size: 0.85rem; text-align: center; white-space: nowrap;">
+                {updated}
+            </td>
+        </tr>"""
+
+    table_html = f"""
+    <div style="
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.06);
+        border: 1px solid rgba(0,0,0,0.06);
+        background: white;
+    ">
+        <table style="width: 100%; border-collapse: collapse; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+            <thead>
+                <tr style="background: linear-gradient(135deg, rgba(234,135,104,0.08) 0%, rgba(51,182,222,0.08) 100%);">
+                    <th style="padding: 0.9rem 1rem; text-align: left; font-size: 0.8rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid rgba(234,135,104,0.15);">
+                        アカウント名
+                    </th>
+                    <th style="padding: 0.9rem 1rem; text-align: left; font-size: 0.8rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid rgba(234,135,104,0.15);">
+                        概要
+                    </th>
+                    <th style="padding: 0.9rem 1rem; text-align: center; font-size: 0.8rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid rgba(234,135,104,0.15);">
+                        ステータス
+                    </th>
+                    <th style="padding: 0.9rem 1rem; text-align: center; font-size: 0.8rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid rgba(234,135,104,0.15);">
+                        更新日
+                    </th>
+                </tr>
+            </thead>
+            <tbody>
+                {rows_html}
+            </tbody>
+        </table>
+    </div>
+
+    <style>
+        /* テーブル行のホバーエフェクト */
+        div[data-testid="stMarkdownContainer"] table tbody tr {{
+            transition: background-color 0.2s ease;
+        }}
+        div[data-testid="stMarkdownContainer"] table tbody tr:hover {{
+            background-color: rgba(234, 135, 104, 0.04) !important;
+        }}
+        div[data-testid="stMarkdownContainer"] table tbody tr:not(:last-child) td {{
+            border-bottom: 1px solid rgba(0,0,0,0.04);
+        }}
+    </style>
+    """
+
+    st.markdown(table_html, unsafe_allow_html=True)
 
 
 def _format_datetime(dt_str: str) -> str:
