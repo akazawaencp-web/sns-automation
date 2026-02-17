@@ -152,26 +152,10 @@ def main():
         st.info("プロジェクトがまだ作成されていません。「新規作成」ボタンからプロジェクトを作成してください。")
         return
 
-    # フィルター・ソート - vertical_alignmentで高さ揃え
-    col1, col2, col3 = st.columns(3, vertical_alignment="bottom")
-
-    with col1:
-        search_query = st.text_input("検索", placeholder="プロジェクト名で検索")
-
-    with col2:
-        filter_status = st.selectbox(
-            "状態でフィルター",
-            ["全て", "未着手", "戦略設計済み", "コンテンツ生成済み"]
-        )
-
-    with col3:
-        sort_by = st.selectbox(
-            "並び順",
-            ["更新日時（新しい順）", "更新日時（古い順）", "プロジェクト名（昇順）", "プロジェクト名（降順）"]
-        )
-
     # プロジェクトデータを読み込み（StateManager経由）
-    projects = []
+    active_projects = []
+    archived_projects = []
+    all_owners = set()
     for pname in project_names_all:
         try:
             sm_item = StateManager(pname)
@@ -191,19 +175,60 @@ def main():
             else:
                 summary = ""
 
-            projects.append({
+            owner = metadata.get("owner", "")
+            if owner:
+                all_owners.add(owner)
+
+            project_data = {
                 "name": state.get("project_name", pname),
                 "summary": summary,
+                "owner": owner,
                 "chapter": state.get("last_chapter", 0),
                 "step": state.get("last_step", ""),
                 "updated_at": state.get("updated_at", ""),
-            })
+            }
+
+            if metadata.get("archived", False):
+                archived_projects.append(project_data)
+            else:
+                active_projects.append(project_data)
         except:
             continue
+
+    # フィルター・ソート - vertical_alignmentで高さ揃え
+    col1, col2, col3, col4 = st.columns(4, vertical_alignment="bottom")
+
+    with col1:
+        search_query = st.text_input("検索", placeholder="プロジェクト名で検索")
+
+    with col2:
+        owner_options = ["全員"] + sorted(all_owners)
+        filter_owner = st.selectbox("担当者で絞り込み", owner_options)
+
+    with col3:
+        filter_status = st.selectbox(
+            "状態でフィルター",
+            ["全て", "未着手", "戦略設計済み", "コンテンツ生成済み"]
+        )
+
+    with col4:
+        sort_by = st.selectbox(
+            "並び順",
+            [
+                "更新日時（新しい順）", "更新日時（古い順）",
+                "プロジェクト名（昇順）", "プロジェクト名（降順）",
+                "ステータス順（未着手→完了）", "ステータス順（完了→未着手）",
+            ]
+        )
+
+    projects = active_projects
 
     # フィルタリング
     if search_query:
         projects = [p for p in projects if search_query.lower() in p["name"].lower()]
+
+    if filter_owner != "全員":
+        projects = [p for p in projects if p["owner"] == filter_owner]
 
     if filter_status == "未着手":
         projects = [p for p in projects if p["chapter"] == 0]
@@ -221,6 +246,10 @@ def main():
         projects = sorted(projects, key=lambda x: x["name"])
     elif sort_by == "プロジェクト名（降順）":
         projects = sorted(projects, key=lambda x: x["name"], reverse=True)
+    elif sort_by == "ステータス順（未着手→完了）":
+        projects = sorted(projects, key=lambda x: x["chapter"])
+    elif sort_by == "ステータス順（完了→未着手）":
+        projects = sorted(projects, key=lambda x: x["chapter"], reverse=True)
 
     # 表形式で表示
     st.markdown(f"**{len(projects)}件のプロジェクト**")
@@ -228,21 +257,75 @@ def main():
     if projects:
         _render_project_table(projects)
 
+    # アーカイブ済みセクション
+    if archived_projects:
+        with st.expander(f"アーカイブ済み（{len(archived_projects)}件）"):
+            _render_project_table(archived_projects, greyed_out=True)
+            st.markdown("")
+            restore_target = st.selectbox(
+                "復元するプロジェクト",
+                ["選択してください"] + [p["name"] for p in archived_projects],
+                key="restore_target",
+            )
+            if restore_target != "選択してください":
+                if st.button(f"「{restore_target}」を戻す", key="restore_btn"):
+                    sm_restore = StateManager(restore_target)
+                    state = sm_restore.load_state()
+                    if state:
+                        metadata = state.get("metadata", {})
+                        metadata["archived"] = False
+                        sm_restore.save_state(
+                            chapter=state.get("last_chapter", 0),
+                            step=state.get("last_step", ""),
+                            data=state.get("data", {}),
+                            metadata=metadata,
+                        )
+                        st.success(f"「{restore_target}」を復元しました")
+                        st.rerun()
+
     st.markdown("---")
 
-    # 個別削除
-    with st.expander("プロジェクトの削除"):
-        delete_target = st.selectbox(
-            "削除するプロジェクト",
-            ["選択してください"] + [p["name"] for p in projects],
-            key="delete_target",
-        )
-        if delete_target != "選択してください":
-            if st.button(f"「{delete_target}」を削除", type="primary"):
-                sm_del = StateManager(delete_target)
-                sm_del.delete_state()
-                st.success(f"プロジェクト「{delete_target}」を削除しました")
-                st.rerun()
+    # プロジェクトの管理（アーカイブ + 削除）
+    with st.expander("プロジェクトの管理"):
+        mgmt_col1, mgmt_col2 = st.columns(2)
+
+        with mgmt_col1:
+            st.markdown("**アーカイブする**")
+            archive_target = st.selectbox(
+                "アーカイブするプロジェクト",
+                ["選択してください"] + [p["name"] for p in active_projects],
+                key="archive_target",
+            )
+            if archive_target != "選択してください":
+                if st.button(f"「{archive_target}」をアーカイブ", key="archive_btn"):
+                    sm_archive = StateManager(archive_target)
+                    state = sm_archive.load_state()
+                    if state:
+                        metadata = state.get("metadata", {})
+                        metadata["archived"] = True
+                        sm_archive.save_state(
+                            chapter=state.get("last_chapter", 0),
+                            step=state.get("last_step", ""),
+                            data=state.get("data", {}),
+                            metadata=metadata,
+                        )
+                        st.success(f"「{archive_target}」をアーカイブしました")
+                        st.rerun()
+
+        with mgmt_col2:
+            st.markdown("**削除する**")
+            all_project_names = [p["name"] for p in active_projects] + [p["name"] for p in archived_projects]
+            delete_target = st.selectbox(
+                "削除するプロジェクト",
+                ["選択してください"] + all_project_names,
+                key="delete_target",
+            )
+            if delete_target != "選択してください":
+                if st.button(f"「{delete_target}」を削除", type="primary", key="delete_btn"):
+                    sm_del = StateManager(delete_target)
+                    sm_del.delete_state()
+                    st.success(f"「{delete_target}」を削除しました")
+                    st.rerun()
 
 
 def _clean_summary(text: str) -> str:
@@ -252,7 +335,7 @@ def _clean_summary(text: str) -> str:
     return text.replace("*", "").replace("#", "").strip()
 
 
-def _render_project_table(projects: list):
+def _render_project_table(projects: list, greyed_out: bool = False):
     """プロジェクト一覧をスタイル付きHTMLテーブルで描画"""
 
     status_styles = {
@@ -267,40 +350,47 @@ def _render_project_table(projects: list):
         chapter = p["chapter"]
         s_label, s_color, s_bg = status_styles.get(chapter, default_status)
         name = html_escape(p["name"])
+        owner = html_escape(p.get("owner", "")) or '<span style="color:#ccc;">-</span>'
         summary = html_escape(_clean_summary(p["summary"])) if p["summary"] else '<span style="color:#ccc;">-</span>'
-        updated = _format_datetime(p["updated_at"])
+        last_op = _format_last_operation(p["chapter"], p["step"], p["updated_at"])
         badge = f'<span style="display:inline-block;padding:0.3rem 0.85rem;border-radius:20px;font-size:0.8rem;font-weight:600;color:{s_color};background:{s_bg};">{s_label}</span>'
         rows.append(
             f"<tr>"
             f'<td style="padding:0.85rem 1rem;font-weight:600;color:#1e293b;white-space:nowrap;">{name}</td>'
-            f'<td style="padding:0.85rem 1rem;color:#374151;font-size:0.9rem;max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{summary}</td>'
+            f'<td style="padding:0.85rem 1rem;color:#374151;font-size:0.9rem;white-space:nowrap;">{owner}</td>'
+            f'<td style="padding:0.85rem 1rem;color:#374151;font-size:0.9rem;max-width:350px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{summary}</td>'
             f'<td style="padding:0.85rem 1rem;text-align:center;">{badge}</td>'
-            f'<td style="padding:0.85rem 1rem;color:#4b5563;font-size:0.85rem;text-align:center;white-space:nowrap;">{updated}</td>'
+            f'<td style="padding:0.85rem 1rem;color:#4b5563;font-size:0.85rem;text-align:center;white-space:nowrap;">{last_op}</td>'
             f"</tr>"
         )
     rows_html = "\n".join(rows)
 
     th_style = "padding:0.9rem 1rem;font-size:0.8rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.05em;border-bottom:2px solid rgba(234,135,104,0.15);"
 
+    wrap_class = "proj-table-wrap-archived" if greyed_out else "proj-table-wrap"
+    opacity_style = "opacity:0.5;" if greyed_out else ""
+
     st.markdown(
         "<style>"
-        ".proj-table-wrap{border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.04),0 4px 16px rgba(0,0,0,0.06);border:1px solid rgba(0,0,0,0.06);background:white;}"
-        ".proj-table-wrap table{width:100%;border-collapse:collapse;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}"
-        ".proj-table-wrap thead tr{background:linear-gradient(135deg,rgba(234,135,104,0.08) 0%,rgba(51,182,222,0.08) 100%);}"
-        ".proj-table-wrap tbody tr{transition:background-color 0.2s ease;}"
-        ".proj-table-wrap tbody tr:hover{background-color:rgba(234,135,104,0.04);}"
-        ".proj-table-wrap tbody tr:not(:last-child) td{border-bottom:1px solid rgba(0,0,0,0.04);}"
+        ".proj-table-wrap,.proj-table-wrap-archived{border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.04),0 4px 16px rgba(0,0,0,0.06);border:1px solid rgba(0,0,0,0.06);background:white;}"
+        ".proj-table-wrap table,.proj-table-wrap-archived table{width:100%;border-collapse:collapse;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}"
+        ".proj-table-wrap thead tr,.proj-table-wrap-archived thead tr{background:linear-gradient(135deg,rgba(234,135,104,0.08) 0%,rgba(51,182,222,0.08) 100%);}"
+        ".proj-table-wrap tbody tr,.proj-table-wrap-archived tbody tr{transition:background-color 0.2s ease;}"
+        ".proj-table-wrap tbody tr:hover,.proj-table-wrap-archived tbody tr:hover{background-color:rgba(234,135,104,0.04);}"
+        ".proj-table-wrap tbody tr:not(:last-child) td,.proj-table-wrap-archived tbody tr:not(:last-child) td{border-bottom:1px solid rgba(0,0,0,0.04);}"
+        ".proj-table-wrap-archived{opacity:0.5;}"
         "</style>",
         unsafe_allow_html=True,
     )
 
     st.markdown(
-        f'<div class="proj-table-wrap"><table>'
+        f'<div class="{wrap_class}" style="{opacity_style}"><table>'
         f'<thead><tr>'
         f'<th style="{th_style}text-align:left;">アカウント名</th>'
+        f'<th style="{th_style}text-align:left;">担当者</th>'
         f'<th style="{th_style}text-align:left;">概要</th>'
         f'<th style="{th_style}text-align:center;">ステータス</th>'
-        f'<th style="{th_style}text-align:center;">更新日</th>'
+        f'<th style="{th_style}text-align:center;">最終操作</th>'
         f'</tr></thead>'
         f'<tbody>{rows_html}</tbody>'
         f'</table></div>',
@@ -308,24 +398,31 @@ def _render_project_table(projects: list):
     )
 
 
-def _format_datetime(dt_str: str) -> str:
-    """
-    日時文字列をフォーマット
+def _format_last_operation(chapter: int, step: str, dt_str: str) -> str:
+    """chapterとstepから最終操作名を推定し、日付と合わせて表示"""
+    # 操作名の推定
+    if chapter == 0 and step == "created":
+        op_name = "作成"
+    elif chapter == 1:
+        op_name = "戦略設計"
+    elif chapter == 2:
+        op_name = "企画生成"
+    elif chapter == 3:
+        op_name = "台本生成"
+    elif step:
+        op_name = step
+    else:
+        op_name = "更新"
 
-    Args:
-        dt_str: ISO形式の日時文字列
-
-    Returns:
-        フォーマット済みの日時文字列
-    """
+    # 日付フォーマット
     if not dt_str:
-        return "不明"
+        return op_name
 
     try:
         dt = datetime.fromisoformat(dt_str)
-        return dt.strftime("%Y/%m/%d %H:%M")
+        return f"{op_name} {dt.strftime('%m/%d')}"
     except:
-        return dt_str
+        return op_name
 
 
 if __name__ == "__main__":
