@@ -273,14 +273,14 @@ def _render_project_table(projects: list):
         rows.append(
             f"<tr>"
             f'<td style="padding:0.85rem 1rem;font-weight:600;color:#1e293b;white-space:nowrap;">{name}</td>'
-            f'<td style="padding:0.85rem 1rem;color:#64748b;font-size:0.9rem;max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{summary}</td>'
+            f'<td style="padding:0.85rem 1rem;color:#374151;font-size:0.9rem;max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{summary}</td>'
             f'<td style="padding:0.85rem 1rem;text-align:center;">{badge}</td>'
-            f'<td style="padding:0.85rem 1rem;color:#94a3b8;font-size:0.85rem;text-align:center;white-space:nowrap;">{updated}</td>'
+            f'<td style="padding:0.85rem 1rem;color:#4b5563;font-size:0.85rem;text-align:center;white-space:nowrap;">{updated}</td>'
             f"</tr>"
         )
     rows_html = "\n".join(rows)
 
-    th_style = "padding:0.9rem 1rem;font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;border-bottom:2px solid rgba(234,135,104,0.15);"
+    th_style = "padding:0.9rem 1rem;font-size:0.8rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.05em;border-bottom:2px solid rgba(234,135,104,0.15);"
 
     st.markdown(
         "<style>"
