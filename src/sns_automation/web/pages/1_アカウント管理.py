@@ -185,12 +185,13 @@ def main():
                 "name": state.get("project_name", pname),
                 "summary": summary,
                 "owner": owner,
-                "chapter": state.get("last_chapter", 0),
-                "step": state.get("last_step", ""),
+                "chapter": int(state.get("last_chapter", 0)),
+                "step": str(state.get("last_step", "")),
                 "updated_at": state.get("updated_at", ""),
-                "ended": ended,
+                "ended": bool(ended),
             })
-        except:
+        except Exception as e:
+            st.warning(f"プロジェクト「{pname}」の読み込みエラー: {e}")
             continue
 
     # フィルター・ソート - vertical_alignmentで高さ揃え
@@ -274,17 +275,10 @@ def main():
         if end_targets:
             if st.button(f"{len(end_targets)}件を終了にする", key="end_btn"):
                 for target in end_targets:
-                    sm_end = StateManager(target)
-                    state = sm_end.load_state()
-                    if state:
-                        metadata = state.get("metadata", {})
-                        metadata["ended"] = True
-                        sm_end.save_state(
-                            chapter=state.get("last_chapter", 0),
-                            step=state.get("last_step", ""),
-                            data=state.get("data", {}),
-                            metadata=metadata,
-                        )
+                    try:
+                        _set_ended_flag(target, True)
+                    except Exception as e:
+                        st.error(f"「{target}」の終了処理でエラー: {e}")
                 st.success(f"{len(end_targets)}件を終了にしました")
                 st.rerun()
 
@@ -299,20 +293,30 @@ def main():
             if reopen_targets:
                 if st.button(f"{len(reopen_targets)}件の終了を解除", key="reopen_btn"):
                     for target in reopen_targets:
-                        sm_reopen = StateManager(target)
-                        state = sm_reopen.load_state()
-                        if state:
-                            metadata = state.get("metadata", {})
-                            metadata["ended"] = False
-                            metadata.pop("archived", None)
-                            sm_reopen.save_state(
-                                chapter=state.get("last_chapter", 0),
-                                step=state.get("last_step", ""),
-                                data=state.get("data", {}),
-                                metadata=metadata,
-                            )
+                        try:
+                            _set_ended_flag(target, False)
+                        except Exception as e:
+                            st.error(f"「{target}」の解除処理でエラー: {e}")
                     st.success(f"{len(reopen_targets)}件の終了を解除しました")
                     st.rerun()
+
+
+def _set_ended_flag(project_name: str, ended: bool) -> None:
+    """プロジェクトの終了フラグを設定"""
+    sm = StateManager(project_name)
+    state = sm.load_state()
+    if not state:
+        raise ValueError(f"プロジェクト「{project_name}」の状態を読み込めません")
+    metadata = state.get("metadata", {})
+    metadata["ended"] = ended
+    if not ended:
+        metadata.pop("archived", None)
+    sm.save_state(
+        chapter=int(state.get("last_chapter", 0)),
+        step=str(state.get("last_step", "")),
+        data=state.get("data", {}),
+        metadata=metadata,
+    )
 
 
 def _clean_summary(text: str) -> str:
