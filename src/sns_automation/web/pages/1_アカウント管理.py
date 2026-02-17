@@ -257,8 +257,12 @@ def main():
     if projects:
         _render_project_table(projects)
 
-    # 非表示にする（複数選択）
-    with st.expander("非表示にする"):
+    # 表示の管理（非表示にする / 非表示から戻す を1つのセクションに）
+    hidden_count = len(archived_projects)
+    expander_label = f"表示の管理（非表示: {hidden_count}件）" if hidden_count else "表示の管理"
+    with st.expander(expander_label):
+        # 非表示にする
+        st.markdown("**一覧から非表示にする**")
         hide_targets = st.multiselect(
             "非表示にするプロジェクトを選択",
             [p["name"] for p in active_projects],
@@ -281,9 +285,10 @@ def main():
                 st.success(f"{len(hide_targets)}件を非表示にしました")
                 st.rerun()
 
-    # 非表示セクション
-    if archived_projects:
-        with st.expander(f"非表示（{len(archived_projects)}件）"):
+        # 非表示中のプロジェクトを表示に戻す
+        if archived_projects:
+            st.markdown("---")
+            st.markdown(f"**非表示中（{hidden_count}件）**")
             _render_project_table(archived_projects, greyed_out=True)
             st.markdown("")
             show_targets = st.multiselect(
