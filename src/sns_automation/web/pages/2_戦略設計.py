@@ -197,12 +197,16 @@ def _render_step1_basic_info():
     # 固定条件の表示
     st.info("**固定条件**: 20代男性・営業職")
 
-    # キーワード入力
-    keyword = st.text_input(
-        "キーワード（任意）",
-        value=st.session_state.strategy_data.get("target_keyword", ""),
-        placeholder="例: 証券、IT、商社、不動産など（空欄でもOK）",
-        help="業界や悩みに関連するキーワードを入力すると、より具体的な提案が得られます"
+    # 業界キーワード選択
+    keyword_options = ["証券", "IT", "商社", "不動産", "保険", "メーカー", "広告", "人材", "SaaS", "銀行"]
+    default_idx = 0
+    saved_keyword = st.session_state.strategy_data.get("target_keyword", "")
+    if saved_keyword in keyword_options:
+        default_idx = keyword_options.index(saved_keyword)
+    keyword = st.selectbox(
+        "業界キーワード",
+        keyword_options,
+        index=default_idx,
     )
 
     # ターゲット候補生成ボタン

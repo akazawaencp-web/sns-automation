@@ -149,6 +149,12 @@ def main():
             background-color: white !important;
         }
 
+        /* ナレーション全文の文字色を黒にする */
+        .stTextArea textarea:disabled {
+            color: #000000 !important;
+            -webkit-text-fill-color: #000000 !important;
+        }
+
         /* 新規追加行のハイライト */
         .dataframe tbody tr.new-row {
             background-color: #fff9e6 !important;
@@ -250,7 +256,7 @@ def _render_content_section(project_name: str, project_state: dict):
     # 企画生成処理
     if st.session_state.get("start_idea_generation") or st.session_state.get("regenerate_ideas") or st.session_state.get("add_more_ideas"):
         _generate_ideas(project_name, project_state)
-        return
+        st.rerun()
 
     if not existing_ideas:
         st.info("企画がまだ生成されていません。「企画を生成（20案）」ボタンから20案を自動生成してください。")
@@ -258,44 +264,8 @@ def _render_content_section(project_name: str, project_state: dict):
 
     st.markdown("---")
 
-    # 企画統計情報
+    # 企画一覧
     st.subheader(f"企画一覧（{len(existing_ideas)}件）")
-
-    # IdeaAnalyzerで分析
-    analyzer = IdeaAnalyzer()
-    analysis = analyzer.analyze_ideas(existing_ideas)
-
-    # 訴求タイプ分布グラフ（コンパクト版）
-    with st.expander("📊 訴求タイプ分布を見る"):
-        appeal_types = list(analysis["appeal_distribution"].keys())
-        counts = list(analysis["appeal_distribution"].values())
-
-        fig = go.Figure(data=[
-            go.Bar(
-                x=appeal_types,
-                y=counts,
-                marker_color=['#667eea', '#764ba2', '#f093fb', '#4facfe', '#43e97b', '#fa709a'],
-            )
-        ])
-
-        fig.update_layout(
-            title="企画の訴求タイプ分布",
-            xaxis_title="訴求タイプ",
-            yaxis_title="件数",
-            height=350,
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-
-        # バランス判定
-        if analysis["is_balanced"]:
-            st.success("バランスの良い企画構成です")
-        else:
-            st.warning("企画の傾向に偏りがあります")
-            for warning in analysis["warnings"]:
-                st.markdown(f"- {warning}")
-
-    st.markdown("---")
 
     # 新規追加企画の開始位置を取得
     newly_added_start = st.session_state.get("newly_added_start_index", None)
@@ -320,25 +290,9 @@ def _render_ideas_table(project_name: str, project_state: dict, ideas: list, new
 
     selected_ideas_key = f"selected_ideas_{project_name}"
 
-    # 全選択/全解除ボタン
-    col1, col2, col3 = st.columns([1, 1, 4])
-
-    with col1:
-        if st.button("☑️ 全選択", use_container_width=True, key=f"select_all_{project_name}"):
-            st.session_state[selected_ideas_key] = set(range(len(ideas)))
-            st.rerun()
-
-    with col2:
-        if st.button("☐ 全解除", use_container_width=True, key=f"deselect_all_{project_name}"):
-            st.session_state[selected_ideas_key] = set()
-            st.rerun()
-
-    with col3:
-        selected_count = len(st.session_state[selected_ideas_key])
-        if selected_count > 0:
-            st.info(f"📌 {selected_count}件の企画を選択中")
-
-    st.markdown("---")
+    selected_count = len(st.session_state[selected_ideas_key])
+    if selected_count > 0:
+        st.info(f"📌 {selected_count}件の企画を選択中")
 
     # 各企画をカードで表示
     for i, idea in enumerate(ideas):
@@ -403,20 +357,6 @@ def _render_ideas_table(project_name: str, project_state: dict, ideas: list, new
 
             with col_status:
                 st.markdown(f"<span style='color: {status_color}; font-weight: bold;'>{status_icon} {status_text}</span>", unsafe_allow_html=True)
-
-            # 台本情報（生成済みの場合のみ）
-            if script:
-                with st.expander("📊 台本情報を見る"):
-                    col_info1, col_info2, col_info3 = st.columns(3)
-
-                    with col_info1:
-                        st.metric("ナレーション文字数", f"{narration_length}文字")
-
-                    with col_info2:
-                        st.metric("推定読み上げ時間", estimated_duration)
-
-                    with col_info3:
-                        st.metric("スライド枚数", f"{slide_count}枚")
 
             # カード間のスペース
             st.markdown("<div style='margin-bottom: 0.5rem;'></div>", unsafe_allow_html=True)
@@ -500,12 +440,7 @@ def _render_ideas_table(project_name: str, project_state: dict, ideas: list, new
             error_count = quality.get("error_count", 0)
             attempts = quality.get("attempts", 1)
 
-            if error_count == 0:
-                status_badge = "✅ 品質OK"
-            else:
-                status_badge = f"⚠️ エラー{error_count}件"
-
-            with st.expander(f"**No.{idea.get('no')}** {idea.get('title', '（タイトルなし）')} — {status_badge} （試行{attempts}回）"):
+            with st.expander(f"**No.{idea.get('no')}** {idea.get('title', '（タイトルなし）')}"):
                 st.markdown(f"**狙い・内容:** {idea.get('summary', '（要約なし）')}")
                 _display_script_details(script)
 

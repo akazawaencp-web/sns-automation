@@ -103,15 +103,15 @@ def main():
             with st.form("create_project_form"):
                 st.subheader("新規プロジェクト作成")
 
+                # プロジェクト名を自動生成
+                existing_projects = StateManager().list_all_projects()
+                next_num = len(existing_projects) + 1
+                default_name = f"account-{next_num:02d}"
+
                 project_name = st.text_input(
                     "プロジェクト名",
-                    placeholder="例: beauty-account-01",
+                    value=default_name,
                     help="半角英数字、ハイフン、アンダースコアのみ使用可能"
-                )
-
-                description = st.text_area(
-                    "説明（任意）",
-                    placeholder="このアカウントの概要や目的を記入してください"
                 )
 
                 col1, col2 = st.columns(2, vertical_alignment="center")
@@ -136,7 +136,7 @@ def main():
                         chapter=0,
                         step="created",
                         data={},
-                        metadata={"description": description, "created_at": datetime.now().isoformat()},
+                        metadata={"created_at": datetime.now().isoformat()},
                     )
 
                     st.success(f"プロジェクト「{project_name}」を作成しました")

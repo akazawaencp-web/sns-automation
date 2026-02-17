@@ -136,6 +136,9 @@ script_generation:
     ・同一人物（メインキャラクター）が進行します。
     ・Midjourneyで一貫したキャラクターを生成してください。
     ・具体的な人物像：20代日本人男性、営業職、スーツ姿
+    ・**正面向き**で撮影（カメラ目線、正面構図が基本）
+    ・**iPhone撮影風のリアルな質感**（スタジオ撮影ではなく、自然な日常感）
+    ・Kling AIで動画化する前提なので、モデルとして使いやすい正面ポートレートにすること
 
     【出力形式】
     以下の3つのセクションで台本を作成してください。
@@ -144,12 +147,12 @@ script_generation:
 
     ### 日本語訳
     ```
-    20代の日本人ビジネスマン、プロフェッショナルな外見、紺色のスーツとネクタイ、少し困惑した表情、フォトリアリスティックなポートレート、自然光、オフィスの窓際、縦長フォーマット 9:16
+    20代の日本人ビジネスマン、正面向きカメラ目線、紺色のスーツとネクタイ、少し困惑した表情、iPhone15で撮影したようなリアルなポートレート写真、自然光、オフィスの窓際、縦長フォーマット 9:16
     ```
 
     ### Midjourneyプロンプト（英語）
     ```
-    A young Japanese businessman in his 20s, professional appearance, navy blue suit and tie, slightly confused expression, photorealistic portrait, natural lighting, by office window, vertical format 9:16 --ar 9:16 --v 6
+    A young Japanese businessman in his 20s, facing directly at camera, eye contact, navy blue suit and tie, slightly confused expression, realistic portrait photo shot on iPhone 15, natural lighting, by office window, vertical format 9:16 --ar 9:16 --v 6 --style raw
     ```
 
     **🚨 超重要・必須 🚨**
