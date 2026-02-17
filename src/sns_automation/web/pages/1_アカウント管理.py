@@ -107,19 +107,6 @@ def main():
                 members = ["Ryoji", "Futa", "Maho", "Toshi"]
                 owner = st.selectbox("担当者", members)
 
-                # プロジェクト名を自動生成（担当者名-連番）
-                existing_projects = StateManager().list_all_projects()
-                owner_lower = owner.lower()
-                owner_projects = [p for p in existing_projects if p.startswith(f"{owner_lower}-")]
-                next_num = len(owner_projects) + 1
-                default_name = f"{owner_lower}-account-{next_num:02d}"
-
-                project_name = st.text_input(
-                    "プロジェクト名",
-                    value=default_name,
-                    help="半角英数字、ハイフン、アンダースコアのみ使用可能"
-                )
-
                 col1, col2 = st.columns(2, vertical_alignment="center")
 
                 with col1:
@@ -129,11 +116,14 @@ def main():
                     cancelled = st.form_submit_button("キャンセル", use_container_width=True)
 
             if submitted:
-                if not project_name:
-                    st.error("プロジェクト名を入力してください")
-                elif not _is_valid_project_name(project_name):
-                    st.error("プロジェクト名は半角英数字、ハイフン、アンダースコアのみ使用できます")
-                elif project_name in StateManager().list_all_projects():
+                # プロジェクト名を自動生成（担当者名-account-連番）
+                existing_projects = StateManager().list_all_projects()
+                owner_lower = owner.lower()
+                owner_projects = [p for p in existing_projects if p.startswith(f"{owner_lower}-")]
+                next_num = len(owner_projects) + 1
+                project_name = f"{owner_lower}-account-{next_num:02d}"
+
+                if project_name in existing_projects:
                     st.error(f"プロジェクト「{project_name}」は既に存在します")
                 else:
                     # StateManagerで初期状態を保存（ローカル + Google Sheets）
