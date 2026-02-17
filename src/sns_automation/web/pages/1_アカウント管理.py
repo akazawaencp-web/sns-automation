@@ -6,7 +6,6 @@
 
 import streamlit as st
 from pathlib import Path
-import json
 from datetime import datetime
 import pandas as pd
 from sns_automation.utils import StateManager
@@ -180,15 +179,24 @@ def main():
             if not state:
                 continue
 
+            # 概要を戦略設計のコンセプト・ターゲットから自動取得
+            metadata = state.get("metadata", {})
+            data = state.get("data", {})
+            concept = metadata.get("concept", "") or data.get("strategy", {}).get("selected_concept", "") or data.get("selected_concept", "")
+            target = metadata.get("target", "") or data.get("strategy", {}).get("target", "") or data.get("target", "")
+            if concept:
+                summary = concept
+            elif target:
+                summary = target
+            else:
+                summary = ""
+
             projects.append({
                 "name": state.get("project_name", pname),
-                "description": state.get("metadata", {}).get("description", state.get("description", "")),
+                "summary": summary,
                 "chapter": state.get("last_chapter", 0),
                 "step": state.get("last_step", ""),
                 "updated_at": state.get("updated_at", ""),
-                "created_at": state.get("metadata", {}).get("created_at", state.get("created_at", "")),
-                "ideas_count": len(state.get("data", {}).get("ideas", [])),
-                "scripts_count": len(state.get("data", {}).get("scripts", [])),
             })
         except:
             continue
@@ -214,159 +222,58 @@ def main():
     elif sort_by == "プロジェクト名（降順）":
         projects = sorted(projects, key=lambda x: x["name"], reverse=True)
 
-    # カード形式で表示
+    # 表形式で表示
     st.markdown(f"**{len(projects)}件のプロジェクト**")
 
-    # グリッドレイアウト（3列）
-    cols_per_row = 3
-    for i in range(0, len(projects), cols_per_row):
-        cols = st.columns(cols_per_row)
+    if projects:
+        # テーブルデータを作成
+        table_data = []
+        for p in projects:
+            chapter = p["chapter"]
+            if chapter == 0:
+                status = "未着手"
+            elif chapter == 1:
+                status = "戦略設計済み"
+            elif chapter == 3:
+                status = "コンテンツ生成済み"
+            else:
+                status = "進行中"
 
-        for j, col in enumerate(cols):
-            idx = i + j
-            if idx >= len(projects):
-                break
+            table_data.append({
+                "アカウント名": p["name"],
+                "概要": p["summary"] if p["summary"] else "-",
+                "ステータス": status,
+                "更新日": _format_datetime(p["updated_at"]),
+            })
 
-            project = projects[idx]
-
-            with col:
-                _render_project_card(project)
+        df = pd.DataFrame(table_data)
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "アカウント名": st.column_config.TextColumn(width="medium"),
+                "概要": st.column_config.TextColumn(width="large"),
+                "ステータス": st.column_config.TextColumn(width="small"),
+                "更新日": st.column_config.TextColumn(width="small"),
+            },
+        )
 
     st.markdown("---")
 
-    # 一括削除 - containerでカード風に
-    st.markdown("### 危険な操作")
-
-    with st.container(border=True):
-        with st.expander("一括削除"):
-            st.warning("この操作は元に戻せません。慎重に実行してください。")
-
-            delete_all = st.checkbox("全てのプロジェクトを削除することを理解しました")
-
-            if st.button("全てのプロジェクトを削除", disabled=not delete_all, type="primary"):
-                for pname in project_names_all:
-                    sm_del = StateManager(pname)
-                    sm_del.delete_state()
-
-                st.success("全てのプロジェクトを削除しました")
+    # 個別削除
+    with st.expander("プロジェクトの削除"):
+        delete_target = st.selectbox(
+            "削除するプロジェクト",
+            ["選択してください"] + [p["name"] for p in projects],
+            key="delete_target",
+        )
+        if delete_target != "選択してください":
+            if st.button(f"「{delete_target}」を削除", type="primary"):
+                sm_del = StateManager(delete_target)
+                sm_del.delete_state()
+                st.success(f"プロジェクト「{delete_target}」を削除しました")
                 st.rerun()
-
-
-def _is_valid_project_name(name: str) -> bool:
-    """
-    プロジェクト名が有効か検証
-
-    Args:
-        name: プロジェクト名
-
-    Returns:
-        有効な場合True
-    """
-    import re
-    return bool(re.match(r"^[a-zA-Z0-9_-]+$", name))
-
-
-def _render_project_card(project: dict):
-    """
-    プロジェクトカードを描画
-
-    Args:
-        project: プロジェクト情報
-    """
-    # 進捗状況のバッジ
-    chapter = project["chapter"]
-
-    if chapter == 0:
-        status_badge = "未着手"
-        status_color = "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)"
-    elif chapter == 1:
-        status_badge = "戦略設計済み"
-        status_color = "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)"
-    elif chapter == 3:
-        status_badge = "コンテンツ生成済み"
-        status_color = "linear-gradient(135deg, #10b981 0%, #059669 100%)"
-    else:
-        status_badge = "進行中"
-        status_color = "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)"
-
-    # 美しいカードのHTML（hover効果はCSSで実装）
-    card_id = f"project-card-{project['name'].replace('_', '-')}"
-    st.markdown(f"""
-        <style>
-        #{card_id} {{
-            padding: 1.8rem;
-            border-radius: 1.5rem;
-            background: rgba(255, 255, 255, 0.95);
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-            border: 1px solid rgba(234, 135, 104, 0.1);
-            margin-bottom: 1.5rem;
-            transition: all 0.3s ease;
-            backdrop-filter: blur(10px);
-        }}
-        #{card_id}:hover {{
-            transform: translateY(-5px);
-            box-shadow: 0 12px 40px rgba(234, 135, 104, 0.15);
-        }}
-        </style>
-        <div id="{card_id}">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                <h3 style="margin: 0; font-size: 1.3rem; font-weight: 600; color: #121213;">{project['name']}</h3>
-                <span style="
-                    padding: 0.4rem 1rem;
-                    border-radius: 20px;
-                    background: {status_color};
-                    color: white;
-                    font-size: 0.85rem;
-                    font-weight: 500;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-                ">{status_badge}</span>
-            </div>
-            <p style="color: #666; font-size: 0.95rem; margin: 0.8rem 0; line-height: 1.6;">
-                {project['description'] if project['description'] else '<em style="color: #999;">説明なし</em>'}
-            </p>
-            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(0,0,0,0.05);">
-                <div style="display: flex; justify-content: space-around; font-size: 0.9rem;">
-                    <div style="text-align: center;">
-                        <div style="font-size: 1.5rem; font-weight: 700; background: linear-gradient(135deg, #ea8768 0%, #33b6de 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">{project['ideas_count']}</div>
-                        <div style="color: #999; font-size: 0.8rem; margin-top: 0.3rem;">企画</div>
-                    </div>
-                    <div style="text-align: center;">
-                        <div style="font-size: 1.5rem; font-weight: 700; background: linear-gradient(135deg, #ea8768 0%, #33b6de 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">{project['scripts_count']}</div>
-                        <div style="color: #999; font-size: 0.8rem; margin-top: 0.3rem;">台本</div>
-                    </div>
-                </div>
-                <div style="margin-top: 1rem; text-align: center; font-size: 0.8rem; color: #999;">
-                    更新: {_format_datetime(project['updated_at'])}
-                </div>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    # アクションボタン - vertical_alignmentで高さ揃え
-    col1, col2, col3 = st.columns(3, vertical_alignment="center")
-
-    with col1:
-        if st.button("詳細", key=f"detail_{project['name']}", use_container_width=True):
-            st.session_state.selected_project = project["name"]
-            # 詳細ページに遷移（今後実装）
-            st.info(f"プロジェクト「{project['name']}」の詳細ページは今後実装予定です")
-
-    with col2:
-        if st.button("編集", key=f"edit_{project['name']}", use_container_width=True):
-            # 編集ページに遷移（今後実装）
-            st.info("編集機能は今後実装予定です")
-
-    with col3:
-        if st.button("削除", key=f"delete_{project['name']}", use_container_width=True):
-            # 削除確認
-            with st.expander("削除の確認"):
-                st.warning(f"プロジェクト「{project['name']}」を削除しますか？この操作は元に戻せません。")
-
-                if st.button(f"はい、削除します", key=f"confirm_delete_{project['name']}", type="primary"):
-                    sm_del = StateManager(project['name'])
-                    sm_del.delete_state()
-                    st.success(f"プロジェクト「{project['name']}」を削除しました")
-                    st.rerun()
 
 
 def _format_datetime(dt_str: str) -> str:
