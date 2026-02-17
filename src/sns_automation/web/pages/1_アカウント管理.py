@@ -255,95 +255,57 @@ def _clean_summary(text: str) -> str:
 def _render_project_table(projects: list):
     """プロジェクト一覧をスタイル付きHTMLテーブルで描画"""
 
-    # ステータスバッジのスタイル定義
     status_styles = {
-        0: ("未着手", "#94a3b8", "rgba(148, 163, 184, 0.1)"),
-        1: ("戦略設計済み", "#f59e0b", "rgba(245, 158, 11, 0.1)"),
-        3: ("コンテンツ生成済み", "#10b981", "rgba(16, 185, 129, 0.1)"),
+        0: ("未着手", "#94a3b8", "rgba(148,163,184,0.1)"),
+        1: ("戦略設計済み", "#f59e0b", "rgba(245,158,11,0.1)"),
+        3: ("コンテンツ生成済み", "#10b981", "rgba(16,185,129,0.1)"),
     }
-    default_status = ("進行中", "#3b82f6", "rgba(59, 130, 246, 0.1)")
+    default_status = ("進行中", "#3b82f6", "rgba(59,130,246,0.1)")
 
-    # テーブル行を生成
-    rows_html = ""
+    rows = []
     for p in projects:
         chapter = p["chapter"]
-        status_label, badge_color, badge_bg = status_styles.get(chapter, default_status)
-
+        s_label, s_color, s_bg = status_styles.get(chapter, default_status)
         name = html_escape(p["name"])
-        summary = html_escape(_clean_summary(p["summary"])) if p["summary"] else '<span style="color: #ccc;">-</span>'
+        summary = html_escape(_clean_summary(p["summary"])) if p["summary"] else '<span style="color:#ccc;">-</span>'
         updated = _format_datetime(p["updated_at"])
+        badge = f'<span style="display:inline-block;padding:0.3rem 0.85rem;border-radius:20px;font-size:0.8rem;font-weight:600;color:{s_color};background:{s_bg};">{s_label}</span>'
+        rows.append(
+            f"<tr>"
+            f'<td style="padding:0.85rem 1rem;font-weight:600;color:#1e293b;white-space:nowrap;">{name}</td>'
+            f'<td style="padding:0.85rem 1rem;color:#64748b;font-size:0.9rem;max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{summary}</td>'
+            f'<td style="padding:0.85rem 1rem;text-align:center;">{badge}</td>'
+            f'<td style="padding:0.85rem 1rem;color:#94a3b8;font-size:0.85rem;text-align:center;white-space:nowrap;">{updated}</td>'
+            f"</tr>"
+        )
+    rows_html = "\n".join(rows)
 
-        rows_html += f"""
-        <tr>
-            <td style="padding: 0.85rem 1rem; font-weight: 600; color: #1e293b; white-space: nowrap;">
-                {name}
-            </td>
-            <td style="padding: 0.85rem 1rem; color: #64748b; font-size: 0.9rem; max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                {summary}
-            </td>
-            <td style="padding: 0.85rem 1rem; text-align: center;">
-                <span style="
-                    display: inline-block;
-                    padding: 0.3rem 0.85rem;
-                    border-radius: 20px;
-                    font-size: 0.8rem;
-                    font-weight: 600;
-                    color: {badge_color};
-                    background: {badge_bg};
-                    border: 1px solid {badge_color}20;
-                ">{status_label}</span>
-            </td>
-            <td style="padding: 0.85rem 1rem; color: #94a3b8; font-size: 0.85rem; text-align: center; white-space: nowrap;">
-                {updated}
-            </td>
-        </tr>"""
+    th_style = "padding:0.9rem 1rem;font-size:0.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;border-bottom:2px solid rgba(234,135,104,0.15);"
 
-    table_html = f"""
-    <div style="
-        border-radius: 16px;
-        overflow: hidden;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.06);
-        border: 1px solid rgba(0,0,0,0.06);
-        background: white;
-    ">
-        <table style="width: 100%; border-collapse: collapse; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
-            <thead>
-                <tr style="background: linear-gradient(135deg, rgba(234,135,104,0.08) 0%, rgba(51,182,222,0.08) 100%);">
-                    <th style="padding: 0.9rem 1rem; text-align: left; font-size: 0.8rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid rgba(234,135,104,0.15);">
-                        アカウント名
-                    </th>
-                    <th style="padding: 0.9rem 1rem; text-align: left; font-size: 0.8rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid rgba(234,135,104,0.15);">
-                        概要
-                    </th>
-                    <th style="padding: 0.9rem 1rem; text-align: center; font-size: 0.8rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid rgba(234,135,104,0.15);">
-                        ステータス
-                    </th>
-                    <th style="padding: 0.9rem 1rem; text-align: center; font-size: 0.8rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid rgba(234,135,104,0.15);">
-                        更新日
-                    </th>
-                </tr>
-            </thead>
-            <tbody>
-                {rows_html}
-            </tbody>
-        </table>
-    </div>
+    st.markdown(
+        "<style>"
+        ".proj-table-wrap{border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.04),0 4px 16px rgba(0,0,0,0.06);border:1px solid rgba(0,0,0,0.06);background:white;}"
+        ".proj-table-wrap table{width:100%;border-collapse:collapse;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}"
+        ".proj-table-wrap thead tr{background:linear-gradient(135deg,rgba(234,135,104,0.08) 0%,rgba(51,182,222,0.08) 100%);}"
+        ".proj-table-wrap tbody tr{transition:background-color 0.2s ease;}"
+        ".proj-table-wrap tbody tr:hover{background-color:rgba(234,135,104,0.04);}"
+        ".proj-table-wrap tbody tr:not(:last-child) td{border-bottom:1px solid rgba(0,0,0,0.04);}"
+        "</style>",
+        unsafe_allow_html=True,
+    )
 
-    <style>
-        /* テーブル行のホバーエフェクト */
-        div[data-testid="stMarkdownContainer"] table tbody tr {{
-            transition: background-color 0.2s ease;
-        }}
-        div[data-testid="stMarkdownContainer"] table tbody tr:hover {{
-            background-color: rgba(234, 135, 104, 0.04) !important;
-        }}
-        div[data-testid="stMarkdownContainer"] table tbody tr:not(:last-child) td {{
-            border-bottom: 1px solid rgba(0,0,0,0.04);
-        }}
-    </style>
-    """
-
-    st.markdown(table_html, unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="proj-table-wrap"><table>'
+        f'<thead><tr>'
+        f'<th style="{th_style}text-align:left;">アカウント名</th>'
+        f'<th style="{th_style}text-align:left;">概要</th>'
+        f'<th style="{th_style}text-align:center;">ステータス</th>'
+        f'<th style="{th_style}text-align:center;">更新日</th>'
+        f'</tr></thead>'
+        f'<tbody>{rows_html}</tbody>'
+        f'</table></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def _format_datetime(dt_str: str) -> str:
