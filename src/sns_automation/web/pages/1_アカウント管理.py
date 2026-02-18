@@ -5,6 +5,7 @@
 """
 
 import json
+import logging
 import streamlit as st
 from pathlib import Path
 from datetime import datetime
@@ -12,36 +13,86 @@ from html import escape as html_escape
 from sns_automation.utils import StateManager
 from sns_automation.web.components import render_feedback_form
 
+logger = logging.getLogger(__name__)
+
 # 終了済みプロジェクト名を保存するローカルファイル
 _ENDED_FILE = Path.home() / ".sns-automation" / "ended_projects.json"
 
 
-def _load_ended_set() -> set:
-    """終了済みプロジェクト名のセットを読み込む（ローカル + Google Sheets）"""
-    ended = set()
+def _load_all_project_data() -> tuple[list[dict], set]:
+    """
+    全プロジェクトデータと終了セットをまとめて読み込む。
+    Google Sheets APIコールを最小化するため、一括取得する。
 
-    # ローカルファイルから読み込み
-    if _ENDED_FILE.exists():
-        try:
-            with open(_ENDED_FILE, "r", encoding="utf-8") as f:
-                ended.update(json.load(f))
-        except Exception:
-            pass
+    Returns:
+        (全プロジェクトのstateリスト, 終了済みプロジェクト名のset)
+    """
+    state_dir = Path.home() / ".sns-automation" / "states"
+    states = {}  # project_name -> state dict
+    ended_set = set()
 
-    # Google Sheetsからも読み込み
+    # --- Google Sheetsから一括取得（APIコール最小化）---
     try:
         sm = StateManager()
         if sm.spreadsheet:
+            # 1) プロジェクトデータ一括取得（1回のAPIコール）
             try:
-                sheet = sm.spreadsheet.worksheet("ended_projects")
-                values = sheet.col_values(1)
-                ended.update(v for v in values[1:] if v)  # ヘッダーをスキップ
-            except Exception:
-                pass
-    except Exception:
-        pass
+                sheet = sm.spreadsheet.worksheet("sns_automation_states")
+                all_records = sheet.get_all_records()
+                for record in all_records:
+                    pname = record.get("project_name")
+                    if not pname:
+                        continue
+                    pname = str(pname)
+                    try:
+                        data = json.loads(record.get("data_json", "{}") or "{}")
+                        metadata = json.loads(record.get("metadata_json", "{}") or "{}")
+                        states[pname] = {
+                            "project_name": pname,
+                            "last_chapter": record.get("last_chapter", 0),
+                            "last_step": record.get("last_step", ""),
+                            "data": data,
+                            "metadata": metadata,
+                            "updated_at": record.get("updated_at", ""),
+                        }
+                    except (json.JSONDecodeError, TypeError) as e:
+                        logger.warning(f"プロジェクト「{pname}」のJSONパースエラー: {e}")
+                        continue
+            except Exception as e:
+                logger.warning(f"Google Sheetsからの一括読み込みに失敗: {e}")
 
-    return ended
+            # 2) 終了済みリスト取得（1回のAPIコール）
+            try:
+                ended_sheet = sm.spreadsheet.worksheet("ended_projects")
+                values = ended_sheet.col_values(1)
+                ended_set.update(v for v in values[1:] if v)
+            except Exception:
+                pass  # ワークシートが存在しない場合はスキップ
+    except Exception as e:
+        logger.warning(f"Google Sheets接続エラー: {e}")
+
+    # --- ローカルファイルから補完（Sheetsにないプロジェクト用）---
+    if state_dir.exists():
+        for state_file in state_dir.glob("*.json"):
+            pname = state_file.stem
+            if pname in states:
+                continue  # Sheetsから取得済み
+            try:
+                with open(state_file, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+                states[pname] = state
+            except Exception:
+                continue
+
+    # ローカルの終了リストも読み込み
+    if _ENDED_FILE.exists():
+        try:
+            with open(_ENDED_FILE, "r", encoding="utf-8") as f:
+                ended_set.update(json.load(f))
+        except Exception:
+            pass
+
+    return list(states.values()), ended_set
 
 
 def _save_ended_set(ended: set) -> None:
@@ -69,8 +120,8 @@ def _save_ended_set(ended: set) -> None:
             if ended_sorted:
                 cells = [[name] for name in ended_sorted]
                 sheet.update(f"A2:A{len(cells) + 1}", cells)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Google Sheetsへのended保存失敗: {e}")
 
 
 def main():
@@ -205,28 +256,19 @@ def main():
 
     st.markdown("---")
 
-    # プロジェクト一覧を取得（StateManager経由でローカル + Google Sheets）
-    sm_list = StateManager()
-    project_names_all = sm_list.list_all_projects()
+    # 全プロジェクトデータ + 終了セットを一括読み込み（APIコール最小化）
+    all_states, ended_set = _load_all_project_data()
 
-    if not project_names_all:
+    if not all_states:
         st.info("プロジェクトがまだ作成されていません。「新規作成」ボタンからプロジェクトを作成してください。")
         return
 
-    # 終了済みプロジェクト名を別ファイルから読み込み（プロジェクトデータとは完全に分離）
-    ended_set = _load_ended_set()
-
-    # プロジェクトデータを読み込み（StateManager経由）
+    # プロジェクトデータを整形
     all_projects = []
     all_owners = set()
-    for pname in project_names_all:
+    for state in all_states:
         try:
-            sm_item = StateManager(pname)
-            state = sm_item.load_state()
-            if not state:
-                continue
-
-            # 概要を戦略設計のコンセプト・ターゲットから自動取得
+            pname = state.get("project_name", "")
             metadata = state.get("metadata", {})
             data = state.get("data", {})
             concept = metadata.get("concept", "") or data.get("strategy", {}).get("selected_concept", "") or data.get("selected_concept", "")
@@ -243,7 +285,7 @@ def main():
                 all_owners.add(owner)
 
             all_projects.append({
-                "name": state.get("project_name", pname),
+                "name": pname,
                 "summary": summary,
                 "owner": owner,
                 "chapter": int(state.get("last_chapter", 0)),
@@ -252,7 +294,7 @@ def main():
                 "ended": pname in ended_set,
             })
         except Exception as e:
-            st.warning(f"プロジェクト「{pname}」の読み込みエラー: {e}")
+            st.warning(f"プロジェクト「{state.get('project_name', '?')}」の処理エラー: {e}")
             continue
 
     # フィルター・ソート - vertical_alignmentで高さ揃え
