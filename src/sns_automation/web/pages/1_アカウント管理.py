@@ -178,8 +178,8 @@ def main():
             if owner:
                 all_owners.add(owner)
 
-            # 終了フラグ（archived=True or ended=True）
-            ended = metadata.get("ended", False) or metadata.get("archived", False)
+            # 終了フラグ（ended=Trueのみ。旧archivedは無視して復旧）
+            ended = metadata.get("ended", False)
 
             all_projects.append({
                 "name": state.get("project_name", pname),
@@ -262,11 +262,40 @@ def main():
     if projects:
         _render_project_table(projects)
 
-    # 終了にする / 終了を解除する
+    # 終了の管理
     non_ended = [p for p in all_projects if not p["ended"]]
-    ended = [p for p in all_projects if p["ended"]]
+    ended_list = [p for p in all_projects if p["ended"]]
+    ended_count = len(ended_list)
 
-    with st.expander("終了にする"):
+    st.markdown("---")
+
+    ended_label = f"終了の管理（{ended_count}件が終了中）" if ended_count else "終了の管理"
+    with st.expander(ended_label):
+        # 終了済み一覧と解除（先に表示）
+        if ended_list:
+            st.markdown(f"**終了済みプロジェクト（{ended_count}件）**")
+            _render_project_table(ended_list)
+            st.markdown("")
+            reopen_targets = st.multiselect(
+                "終了を解除するプロジェクトを選択",
+                [p["name"] for p in ended_list],
+                key="reopen_targets",
+            )
+            if reopen_targets:
+                if st.button(f"{len(reopen_targets)}件の終了を解除する", key="reopen_btn"):
+                    for target in reopen_targets:
+                        try:
+                            _set_ended_flag(target, False)
+                        except Exception as e:
+                            st.error(f"「{target}」の解除処理でエラー: {e}")
+                    st.success(f"{len(reopen_targets)}件の終了を解除しました")
+                    st.rerun()
+            st.markdown("---")
+        else:
+            st.info("終了済みのプロジェクトはありません")
+
+        # 終了にする
+        st.markdown("**プロジェクトを終了にする**")
         end_targets = st.multiselect(
             "終了にするプロジェクトを選択",
             [p["name"] for p in non_ended],
@@ -282,24 +311,6 @@ def main():
                 st.success(f"{len(end_targets)}件を終了にしました")
                 st.rerun()
 
-        if ended:
-            st.markdown("---")
-            st.markdown(f"**終了済み（{len(ended)}件）**")
-            reopen_targets = st.multiselect(
-                "終了を解除するプロジェクトを選択",
-                [p["name"] for p in ended],
-                key="reopen_targets",
-            )
-            if reopen_targets:
-                if st.button(f"{len(reopen_targets)}件の終了を解除", key="reopen_btn"):
-                    for target in reopen_targets:
-                        try:
-                            _set_ended_flag(target, False)
-                        except Exception as e:
-                            st.error(f"「{target}」の解除処理でエラー: {e}")
-                    st.success(f"{len(reopen_targets)}件の終了を解除しました")
-                    st.rerun()
-
 
 def _set_ended_flag(project_name: str, ended: bool) -> None:
     """プロジェクトの終了フラグを設定"""
@@ -309,8 +320,8 @@ def _set_ended_flag(project_name: str, ended: bool) -> None:
         raise ValueError(f"プロジェクト「{project_name}」の状態を読み込めません")
     metadata = state.get("metadata", {})
     metadata["ended"] = ended
-    if not ended:
-        metadata.pop("archived", None)
+    # 旧archivedフラグは常にクリーンアップ
+    metadata.pop("archived", None)
     sm.save_state(
         chapter=int(state.get("last_chapter", 0)),
         step=str(state.get("last_step", "")),
