@@ -4,12 +4,73 @@
 60アカウントの一覧表示・作成・削除・進捗管理
 """
 
+import json
 import streamlit as st
 from pathlib import Path
 from datetime import datetime
 from html import escape as html_escape
 from sns_automation.utils import StateManager
 from sns_automation.web.components import render_feedback_form
+
+# 終了済みプロジェクト名を保存するローカルファイル
+_ENDED_FILE = Path.home() / ".sns-automation" / "ended_projects.json"
+
+
+def _load_ended_set() -> set:
+    """終了済みプロジェクト名のセットを読み込む（ローカル + Google Sheets）"""
+    ended = set()
+
+    # ローカルファイルから読み込み
+    if _ENDED_FILE.exists():
+        try:
+            with open(_ENDED_FILE, "r", encoding="utf-8") as f:
+                ended.update(json.load(f))
+        except Exception:
+            pass
+
+    # Google Sheetsからも読み込み
+    try:
+        sm = StateManager()
+        if sm.spreadsheet:
+            try:
+                sheet = sm.spreadsheet.worksheet("ended_projects")
+                values = sheet.col_values(1)
+                ended.update(v for v in values[1:] if v)  # ヘッダーをスキップ
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return ended
+
+
+def _save_ended_set(ended: set) -> None:
+    """終了済みプロジェクト名のセットを保存（ローカル + Google Sheets）"""
+    ended_sorted = sorted(ended)
+
+    # ローカルファイルに保存
+    _ENDED_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(_ENDED_FILE, "w", encoding="utf-8") as f:
+        json.dump(ended_sorted, f, ensure_ascii=False)
+
+    # Google Sheetsにも保存
+    try:
+        sm = StateManager()
+        if sm.spreadsheet:
+            try:
+                sheet = sm.spreadsheet.worksheet("ended_projects")
+            except Exception:
+                sheet = sm.spreadsheet.add_worksheet(
+                    title="ended_projects", rows=200, cols=1
+                )
+            # シートをクリアして再書き込み
+            sheet.clear()
+            sheet.update_cell(1, 1, "project_name")
+            if ended_sorted:
+                cells = [[name] for name in ended_sorted]
+                sheet.update(f"A2:A{len(cells) + 1}", cells)
+    except Exception:
+        pass
 
 
 def main():
@@ -152,6 +213,9 @@ def main():
         st.info("プロジェクトがまだ作成されていません。「新規作成」ボタンからプロジェクトを作成してください。")
         return
 
+    # 終了済みプロジェクト名を別ファイルから読み込み（プロジェクトデータとは完全に分離）
+    ended_set = _load_ended_set()
+
     # プロジェクトデータを読み込み（StateManager経由）
     all_projects = []
     all_owners = set()
@@ -178,9 +242,6 @@ def main():
             if owner:
                 all_owners.add(owner)
 
-            # 終了フラグ（ended=Trueのみ。旧archivedは無視して復旧）
-            ended = metadata.get("ended", False)
-
             all_projects.append({
                 "name": state.get("project_name", pname),
                 "summary": summary,
@@ -188,7 +249,7 @@ def main():
                 "chapter": int(state.get("last_chapter", 0)),
                 "step": str(state.get("last_step", "")),
                 "updated_at": state.get("updated_at", ""),
-                "ended": bool(ended),
+                "ended": pname in ended_set,
             })
         except Exception as e:
             st.warning(f"プロジェクト「{pname}」の読み込みエラー: {e}")
@@ -283,11 +344,8 @@ def main():
             )
             if reopen_targets:
                 if st.button(f"{len(reopen_targets)}件の終了を解除する", key="reopen_btn"):
-                    for target in reopen_targets:
-                        try:
-                            _set_ended_flag(target, False)
-                        except Exception as e:
-                            st.error(f"「{target}」の解除処理でエラー: {e}")
+                    new_ended = ended_set - set(reopen_targets)
+                    _save_ended_set(new_ended)
                     st.success(f"{len(reopen_targets)}件の終了を解除しました")
                     st.rerun()
             st.markdown("---")
@@ -303,31 +361,10 @@ def main():
         )
         if end_targets:
             if st.button(f"{len(end_targets)}件を終了にする", key="end_btn"):
-                for target in end_targets:
-                    try:
-                        _set_ended_flag(target, True)
-                    except Exception as e:
-                        st.error(f"「{target}」の終了処理でエラー: {e}")
+                new_ended = ended_set | set(end_targets)
+                _save_ended_set(new_ended)
                 st.success(f"{len(end_targets)}件を終了にしました")
                 st.rerun()
-
-
-def _set_ended_flag(project_name: str, ended: bool) -> None:
-    """プロジェクトの終了フラグを設定"""
-    sm = StateManager(project_name)
-    state = sm.load_state()
-    if not state:
-        raise ValueError(f"プロジェクト「{project_name}」の状態を読み込めません")
-    metadata = state.get("metadata", {})
-    metadata["ended"] = ended
-    # 旧archivedフラグは常にクリーンアップ
-    metadata.pop("archived", None)
-    sm.save_state(
-        chapter=int(state.get("last_chapter", 0)),
-        step=str(state.get("last_step", "")),
-        data=state.get("data", {}),
-        metadata=metadata,
-    )
 
 
 def _clean_summary(text: str) -> str:
