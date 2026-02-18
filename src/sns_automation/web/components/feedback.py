@@ -38,7 +38,7 @@ def render_feedback_form():
         with st.form("feedback_form", clear_on_submit=True):
             reporter = st.selectbox(
                 "報告者",
-                ["Futa", "Maho", "Toshi"],
+                ["Futa", "Maho", "Toshi", "Ryoji"],
             )
 
             content = st.text_area(
