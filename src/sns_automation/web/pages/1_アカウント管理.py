@@ -6,6 +6,7 @@
 
 import json
 import logging
+import time
 import streamlit as st
 from pathlib import Path
 from datetime import datetime
@@ -18,58 +19,103 @@ logger = logging.getLogger(__name__)
 # 終了済みプロジェクト名を保存するローカルファイル
 _ENDED_FILE = Path.home() / ".sns-automation" / "ended_projects.json"
 
+# データキャッシュの有効期間（秒）
+_CACHE_TTL = 60
 
-def _load_all_project_data() -> tuple[list[dict], set]:
+
+@st.cache_resource(show_spinner=False)
+def _get_spreadsheet():
+    """
+    Google Sheetsのスプレッドシート接続をキャッシュ。
+    認証は1回だけ行い、以降はキャッシュされた接続を再利用する。
+    """
+    try:
+        import gspread
+        from google.oauth2.service_account import Credentials
+
+        if not hasattr(st, "secrets") or "google_service_account" not in st.secrets:
+            return None
+
+        service_account_info = dict(st.secrets["google_service_account"])
+        spreadsheet_id = st.secrets["google_sheets"]["spreadsheet_id"]
+
+        scope = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        credentials = Credentials.from_service_account_info(
+            service_account_info, scopes=scope
+        )
+        client = gspread.authorize(credentials)
+        spreadsheet = client.open_by_key(spreadsheet_id)
+        logger.info("Google Sheets接続をキャッシュしました")
+        return spreadsheet
+    except Exception as e:
+        logger.warning(f"Google Sheets接続に失敗: {e}")
+        return None
+
+
+def _load_all_project_data(force_refresh: bool = False) -> tuple[list[dict], set]:
     """
     全プロジェクトデータと終了セットをまとめて読み込む。
-    Google Sheets APIコールを最小化するため、一括取得する。
+    キャッシュを使い、不要なAPIコールを排除する。
+
+    Args:
+        force_refresh: Trueの場合キャッシュを無視して再取得
 
     Returns:
         (全プロジェクトのstateリスト, 終了済みプロジェクト名のset)
     """
+    # キャッシュチェック
+    cache_key = "_project_data_cache"
+    cache_time_key = "_project_data_cache_time"
+
+    if not force_refresh:
+        cached = st.session_state.get(cache_key)
+        cached_time = st.session_state.get(cache_time_key, 0)
+        if cached and (time.time() - cached_time) < _CACHE_TTL:
+            return cached
+
     state_dir = Path.home() / ".sns-automation" / "states"
     states = {}  # project_name -> state dict
     ended_set = set()
 
-    # --- Google Sheetsから一括取得（APIコール最小化）---
-    try:
-        sm = StateManager()
-        if sm.spreadsheet:
-            # 1) プロジェクトデータ一括取得（1回のAPIコール）
-            try:
-                sheet = sm.spreadsheet.worksheet("sns_automation_states")
-                all_records = sheet.get_all_records()
-                for record in all_records:
-                    pname = record.get("project_name")
-                    if not pname:
-                        continue
-                    pname = str(pname)
-                    try:
-                        data = json.loads(record.get("data_json", "{}") or "{}")
-                        metadata = json.loads(record.get("metadata_json", "{}") or "{}")
-                        states[pname] = {
-                            "project_name": pname,
-                            "last_chapter": record.get("last_chapter", 0),
-                            "last_step": record.get("last_step", ""),
-                            "data": data,
-                            "metadata": metadata,
-                            "updated_at": record.get("updated_at", ""),
-                        }
-                    except (json.JSONDecodeError, TypeError) as e:
-                        logger.warning(f"プロジェクト「{pname}」のJSONパースエラー: {e}")
-                        continue
-            except Exception as e:
-                logger.warning(f"Google Sheetsからの一括読み込みに失敗: {e}")
+    # --- Google Sheetsから一括取得（キャッシュ済み接続を使用）---
+    spreadsheet = _get_spreadsheet()
+    if spreadsheet:
+        # 1) プロジェクトデータ一括取得（1回のAPIコール）
+        try:
+            sheet = spreadsheet.worksheet("sns_automation_states")
+            all_records = sheet.get_all_records()
+            for record in all_records:
+                pname = record.get("project_name")
+                if not pname:
+                    continue
+                pname = str(pname)
+                try:
+                    data = json.loads(record.get("data_json", "{}") or "{}")
+                    metadata = json.loads(record.get("metadata_json", "{}") or "{}")
+                    states[pname] = {
+                        "project_name": pname,
+                        "last_chapter": record.get("last_chapter", 0),
+                        "last_step": record.get("last_step", ""),
+                        "data": data,
+                        "metadata": metadata,
+                        "updated_at": record.get("updated_at", ""),
+                    }
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(f"プロジェクト「{pname}」のJSONパースエラー: {e}")
+                    continue
+        except Exception as e:
+            logger.warning(f"Google Sheetsからの一括読み込みに失敗: {e}")
 
-            # 2) 終了済みリスト取得（1回のAPIコール）
-            try:
-                ended_sheet = sm.spreadsheet.worksheet("ended_projects")
-                values = ended_sheet.col_values(1)
-                ended_set.update(v for v in values[1:] if v)
-            except Exception:
-                pass  # ワークシートが存在しない場合はスキップ
-    except Exception as e:
-        logger.warning(f"Google Sheets接続エラー: {e}")
+        # 2) 終了済みリスト取得（1回のAPIコール）
+        try:
+            ended_sheet = spreadsheet.worksheet("ended_projects")
+            values = ended_sheet.col_values(1)
+            ended_set.update(v for v in values[1:] if v)
+        except Exception:
+            pass  # ワークシートが存在しない場合はスキップ
 
     # --- ローカルファイルから補完（Sheetsにないプロジェクト用）---
     if state_dir.exists():
@@ -92,7 +138,19 @@ def _load_all_project_data() -> tuple[list[dict], set]:
         except Exception:
             pass
 
-    return list(states.values()), ended_set
+    result = (list(states.values()), ended_set)
+
+    # キャッシュに保存
+    st.session_state[cache_key] = result
+    st.session_state[cache_time_key] = time.time()
+
+    return result
+
+
+def _invalidate_cache():
+    """データキャッシュを無効化する"""
+    st.session_state.pop("_project_data_cache", None)
+    st.session_state.pop("_project_data_cache_time", None)
 
 
 def _save_ended_set(ended: set) -> None:
@@ -104,14 +162,14 @@ def _save_ended_set(ended: set) -> None:
     with open(_ENDED_FILE, "w", encoding="utf-8") as f:
         json.dump(ended_sorted, f, ensure_ascii=False)
 
-    # Google Sheetsにも保存
-    try:
-        sm = StateManager()
-        if sm.spreadsheet:
+    # Google Sheetsにも保存（キャッシュ済み接続を使用）
+    spreadsheet = _get_spreadsheet()
+    if spreadsheet:
+        try:
             try:
-                sheet = sm.spreadsheet.worksheet("ended_projects")
+                sheet = spreadsheet.worksheet("ended_projects")
             except Exception:
-                sheet = sm.spreadsheet.add_worksheet(
+                sheet = spreadsheet.add_worksheet(
                     title="ended_projects", rows=200, cols=1
                 )
             # シートをクリアして再書き込み
@@ -120,8 +178,11 @@ def _save_ended_set(ended: set) -> None:
             if ended_sorted:
                 cells = [[name] for name in ended_sorted]
                 sheet.update(f"A2:A{len(cells) + 1}", cells)
-    except Exception as e:
-        logger.warning(f"Google Sheetsへのended保存失敗: {e}")
+        except Exception as e:
+            logger.warning(f"Google Sheetsへのended保存失敗: {e}")
+
+    # キャッシュを無効化（次回読み込み時に最新データを取得）
+    _invalidate_cache()
 
 
 def main():
@@ -202,6 +263,7 @@ def main():
 
     with col2:
         if st.button("更新", use_container_width=True):
+            _invalidate_cache()
             st.rerun()
 
     with col3:
@@ -228,7 +290,13 @@ def main():
 
             if submitted:
                 # プロジェクト名を自動生成（担当者名-account-連番）
-                existing_projects = StateManager().list_all_projects()
+                # キャッシュ済みデータからプロジェクト一覧を取得（APIコールなし）
+                cached_states, _ = _load_all_project_data()
+                existing_projects = {s["project_name"] for s in cached_states}
+                # ローカルファイルも確認
+                for sf in state_dir.glob("*.json"):
+                    existing_projects.add(sf.stem)
+
                 owner_lower = owner.lower()
                 owner_projects = [p for p in existing_projects if p.startswith(f"{owner_lower}-")]
                 next_num = len(owner_projects) + 1
@@ -248,6 +316,7 @@ def main():
 
                     st.success(f"プロジェクト「{project_name}」を作成しました")
                     st.session_state.show_create_dialog = False
+                    _invalidate_cache()
                     st.rerun()
 
             if cancelled:
