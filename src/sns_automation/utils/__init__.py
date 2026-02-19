@@ -10,6 +10,7 @@ from sns_automation.utils.image_processing import extract_frames, batch_extract
 from sns_automation.utils.prompt_loader import PromptLoader, get_prompt_loader, load_prompt
 from sns_automation.utils.linter import ScriptLinter, lint_script, lint_script_file
 from sns_automation.utils.state_manager import StateManager, get_state_manager
+from sns_automation.utils.progress_manager import ProgressManager
 from sns_automation.utils.idea_analyzer import IdeaAnalyzer
 from sns_automation.utils.script_previewer import ScriptPreviewer
 from sns_automation.utils import error_helpers
@@ -30,6 +31,7 @@ __all__ = [
     "lint_script_file",
     "StateManager",
     "get_state_manager",
+    "ProgressManager",
     "IdeaAnalyzer",
     "ScriptPreviewer",
     "error_helpers",
