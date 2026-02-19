@@ -167,27 +167,21 @@ def main():
 
     st.markdown("---")
 
-    # プログレスバー
-    total_steps = 7
+    # プログレスバー（3ステップに統合）
+    total_steps = 3
     current_step = st.session_state.strategy_step
+    # 旧ステップ番号との互換性（4以上は3に統合）
+    display_step = min(current_step, 3)
 
-    st.progress(current_step / total_steps, text=f"ステップ {current_step} / {total_steps}")
+    st.progress(display_step / total_steps, text=f"ステップ {display_step} / {total_steps}")
 
     # ステップごとの処理
     if current_step == 1:
         _render_step1_basic_info()
     elif current_step == 2:
         _render_step2_concept_generation()
-    elif current_step == 3:
-        _render_step3_persona()
-    elif current_step == 4:
-        _render_step4_pains()
-    elif current_step == 5:
-        _render_step5_usp_future()
-    elif current_step == 6:
-        _render_step6_profile()
-    elif current_step == 7:
-        _render_step7_confirmation(selected_project, project_state)
+    elif current_step >= 3:
+        _render_step3_confirmation(selected_project, project_state)
 
 
 def _render_step1_basic_info():
@@ -329,21 +323,25 @@ def _render_step2_concept_generation():
                 st.rerun()
 
         with col2:
-            if st.button("次へ →", type="primary", use_container_width=True):
+            if st.button("次へ（残りを一括生成）→", type="primary", use_container_width=True):
                 # 選択したコンセプトを保存
                 st.session_state.strategy_data["selected_concept"] = concepts[selected_concept_index]
                 st.session_state.strategy_data["selected_concept_index"] = selected_concept_index
 
-                # ファイルに永続化
-                _save_strategy_data(
-                    st.session_state.current_project,
-                    3,  # 次のステップ
-                    st.session_state.strategy_data
-                )
+                # ステップ3〜6を一括自動生成
+                success = _batch_generate_steps_3_to_6()
 
-                # 次のステップへ
-                st.session_state.strategy_step = 3
-                st.rerun()
+                if success:
+                    # ファイルに永続化
+                    _save_strategy_data(
+                        st.session_state.current_project,
+                        3,  # 最終確認ステップ
+                        st.session_state.strategy_data
+                    )
+                    st.session_state.strategy_step = 3
+                    st.rerun()
+                else:
+                    st.error("一括生成中にエラーが発生しました。もう一度お試しください。")
 
     else:
         # コンセプト生成ボタン
@@ -475,207 +473,209 @@ def _parse_target_candidates(response: str) -> list:
     return candidates
 
 
-def _render_step3_persona():
-    """ステップ3: ペルソナの詳細化（Claude API自動生成）"""
-    st.subheader("ステップ3: ペルソナの詳細化")
+def _batch_generate_steps_3_to_6() -> bool:
+    """
+    ステップ3〜6（ペルソナ → Pain → USP+Future → プロフィール）を一括生成する。
 
-    st.markdown(f"""
-    選択したコンセプト: **{st.session_state.strategy_data.get('selected_concept', '')}**
+    Returns:
+        成功した場合True
+    """
+    try:
+        claude = ClaudeAPI()
+        progress = st.progress(0, text="一括生成中...")
 
-    ターゲットのペルソナを、まるで実在する人物かのように生々しく定義します。
-    """)
+        # --- ステップ3: ペルソナ生成 ---
+        progress.progress(0.1, text="ペルソナを生成中... (1/4)")
+        if not st.session_state.strategy_data.get("persona"):
+            prompt_data = load_prompt(
+                chapter="chapter1",
+                prompt_name="persona_definition",
+                variables={
+                    "concept": st.session_state.strategy_data["selected_concept"],
+                },
+            )
+            response = claude.generate_text(
+                prompt=prompt_data["user"],
+                system_prompt=prompt_data.get("system"),
+                temperature=prompt_data.get("temperature", 0.7),
+                max_tokens=prompt_data.get("max_tokens", 3000),
+            )
+            if not response:
+                st.error("ペルソナの生成に失敗しました")
+                return False
+            st.session_state.strategy_data["persona"] = response
 
-    # ペルソナが既に生成されている場合
-    persona_text = st.session_state.strategy_data.get("persona", "")
+        # --- ステップ4: Pain抽出 ---
+        progress.progress(0.35, text="Painを抽出中... (2/4)")
+        if not st.session_state.strategy_data.get("pains"):
+            persona_text = st.session_state.strategy_data.get("persona", "")
+            prompt_data = load_prompt(
+                chapter="chapter1",
+                prompt_name="pain_extraction",
+                variables={
+                    "persona": persona_text,
+                    "target": st.session_state.strategy_data["target"],
+                },
+            )
+            response = claude.generate_text(
+                prompt=prompt_data["user"],
+                system_prompt=prompt_data.get("system"),
+                temperature=prompt_data.get("temperature", 0.7),
+                max_tokens=prompt_data.get("max_tokens", 3000),
+            )
+            pains = _parse_pains(response) if response else []
+            if not pains:
+                st.error("Painの生成に失敗しました")
+                return False
+            st.session_state.strategy_data["pains"] = pains
 
-    if persona_text:
-        st.success("ペルソナを生成済み")
+        # --- ステップ5: USP+Future ---
+        progress.progress(0.6, text="USP＋Futureを生成中... (3/4)")
+        if not st.session_state.strategy_data.get("usp_future"):
+            pains = st.session_state.strategy_data.get("pains", [])
+            pains_text = "\n".join([f"{i+1}. {pain}" for i, pain in enumerate(pains)])
+            prompt_data = load_prompt(
+                chapter="chapter1",
+                prompt_name="usp_future_generation",
+                variables={
+                    "pains": pains_text,
+                    "service": st.session_state.strategy_data["service"],
+                },
+            )
+            response = claude.generate_text(
+                prompt=prompt_data["user"],
+                system_prompt=prompt_data.get("system"),
+                temperature=prompt_data.get("temperature", 0.8),
+                max_tokens=prompt_data.get("max_tokens", 2000),
+            )
+            if not response:
+                st.error("USP＋Futureの生成に失敗しました")
+                return False
+            st.session_state.strategy_data["usp_future"] = response
 
-        # 生成されたペルソナを表示・編集可能に
-        st.subheader("生成されたペルソナ")
+        # --- ステップ6: プロフィール生成 ---
+        progress.progress(0.85, text="プロフィール文を生成中... (4/4)")
+        if not st.session_state.strategy_data.get("profiles"):
+            prompt_data = load_prompt(
+                chapter="chapter1",
+                prompt_name="profile_generation",
+                variables={
+                    "concept": st.session_state.strategy_data["selected_concept"],
+                    "usp_future": st.session_state.strategy_data.get("usp_future", ""),
+                    "target": st.session_state.strategy_data["target"],
+                },
+            )
+            response = claude.generate_text(
+                prompt=prompt_data["user"],
+                system_prompt=prompt_data.get("system"),
+                temperature=prompt_data.get("temperature", 0.8),
+                max_tokens=prompt_data.get("max_tokens", 2000),
+            )
+            profiles = _parse_profiles(response) if response else []
+            if not profiles:
+                st.error("プロフィール文の生成に失敗しました")
+                return False
+            st.session_state.strategy_data["profiles"] = profiles
 
-        edited_persona = st.text_area(
-            "ペルソナの内容（編集可能）",
-            value=persona_text,
-            height=400,
-            help="必要に応じて内容を編集できます"
-        )
+        progress.progress(1.0, text="一括生成完了！")
+        return True
 
-        # 編集内容を保存
-        if edited_persona != persona_text:
-            st.session_state.strategy_data["persona"] = edited_persona
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            if st.button("← 戻る", use_container_width=True):
-                st.session_state.strategy_step = 2
-                st.rerun()
-
-        with col2:
-            if st.button("再生成", use_container_width=True):
-                # ペルソナをクリアして再生成
-                st.session_state.strategy_data["persona"] = ""
-                st.rerun()
-
-        with col3:
-            if st.button("次へ →", type="primary", use_container_width=True):
-                st.session_state.strategy_data["persona"] = edited_persona
-
-                # ファイルに永続化
-                _save_strategy_data(
-                    st.session_state.current_project,
-                    4,  # 次のステップ
-                    st.session_state.strategy_data
-                )
-
-                st.session_state.strategy_step = 4
-                st.rerun()
-
-    else:
-        # ペルソナ生成ボタン
-        if st.button("ペルソナ10項目を自動生成", type="primary", use_container_width=True):
-            with st.spinner("ペルソナを生成中...（約30秒かかります）"):
-                try:
-                    # 設定を読み込み
-                    # config = load_config()  # Streamlit Cloud対応: 不要
-                    claude = ClaudeAPI()
-
-                    # プロンプトを読み込み
-                    prompt_data = load_prompt(
-                        chapter="chapter1",
-                        prompt_name="persona_definition",
-                        variables={
-                            "concept": st.session_state.strategy_data["selected_concept"],
-                        },
-                    )
-
-                    # Claude APIで生成
-                    response = claude.generate_text(
-                        prompt=prompt_data["user"],
-                        system_prompt=prompt_data.get("system"),
-                        temperature=prompt_data.get("temperature", 0.7),
-                        max_tokens=prompt_data.get("max_tokens", 3000),
-                    )
-
-                    # レスポンスを保存
-                    if response:
-                        st.session_state.strategy_data["persona"] = response
-                        st.success("ペルソナを生成しました！")
-                        st.rerun()
-                    else:
-                        st.error("ペルソナの生成に失敗しました。もう一度お試しください。")
-
-                except FileNotFoundError:
-                    error_helpers.show_config_not_found_error()
-                except Exception as e:
-                    st.error(f"エラーが発生しました: {e}")
-                    # エラーの詳細を表示
-                    with st.expander("エラーの詳細"):
-                        import traceback
-                        st.code(traceback.format_exc(), language="text")
-
-        st.markdown("---")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            if st.button("← 戻る", use_container_width=True):
-                st.session_state.strategy_step = 2
-                st.rerun()
+    except Exception as e:
+        st.error(f"一括生成中にエラーが発生しました: {e}")
+        with st.expander("エラーの詳細"):
+            import traceback
+            st.code(traceback.format_exc(), language="text")
+        return False
 
 
-def _render_step4_pains():
-    """ステップ4: Painの抽出"""
-    st.subheader("ステップ4: Painの抽出（20個）")
+def _render_step3_confirmation(project_name: str, project_state: dict):
+    """ステップ3: 最終確認と保存（旧ステップ7）"""
+    st.subheader("ステップ3: 最終確認")
 
-    st.markdown("""
-    ペルソナが抱える「Pain」（悩み・不安・フラストレーション）を20個抽出します。
-    自動生成するか、手動で入力してください。
-    """)
+    st.markdown("全ての生成が完了しました。内容を確認して、保存してください。")
 
-    pains = st.session_state.strategy_data.get("pains", [])
+    # 基本情報
+    with st.expander("基本情報", expanded=True):
+        st.markdown(f"**役割:** {st.session_state.strategy_data.get('role', '')}")
+        st.markdown(f"**サービス:** {st.session_state.strategy_data.get('service', '')}")
+        st.markdown(f"**ターゲット:** {st.session_state.strategy_data.get('target', '')}")
 
-    if pains:
-        st.success(f"{len(pains)}個のPainを抽出済み")
+    # コンセプト
+    with st.expander("勝ち筋コンセプト", expanded=True):
+        st.markdown(f"**選択したコンセプト:** {st.session_state.strategy_data.get('selected_concept', '')}")
 
-        # Pain一覧を編集可能なフォームで表示
-        with st.form("pains_edit_form"):
-            st.subheader("Painリスト（編集可能）")
+    # ペルソナ
+    with st.expander("ペルソナ"):
+        persona_text = st.session_state.strategy_data.get("persona", "")
+        st.text_area("ペルソナ内容", value=persona_text, height=300, disabled=True, label_visibility="collapsed")
 
-            edited_pains = []
-            for i, pain in enumerate(pains):
-                edited_pain = st.text_input(
-                    f"{i+1}.",
-                    value=pain,
-                    key=f"pain_{i}",
-                )
-                edited_pains.append(edited_pain)
+    # Pain
+    with st.expander("Pain（20個）"):
+        pains = st.session_state.strategy_data.get("pains", [])
+        for i, pain in enumerate(pains, 1):
+            st.markdown(f"{i}. {pain}")
 
-            col1, col2 = st.columns(2)
+    # USP+Future
+    with st.expander("USP＋Future"):
+        usp_future_text = st.session_state.strategy_data.get("usp_future", "")
+        st.text_area("USP＋Future内容", value=usp_future_text, height=200, disabled=True, label_visibility="collapsed")
 
-            with col1:
-                back = st.form_submit_button("← 戻る", use_container_width=True)
+    # プロフィール選択
+    profiles = st.session_state.strategy_data.get("profiles", [])
+    if profiles:
+        with st.expander("プロフィール文（1つ選択）", expanded=True):
+            selected_profile_index = st.radio(
+                "採用するプロフィール文を選択してください",
+                range(len(profiles)),
+                format_func=lambda i: f"案{i+1}",
+                key="selected_profile_radio",
+            )
+            st.text_area(
+                "プロフィール文プレビュー",
+                value=profiles[selected_profile_index],
+                height=150,
+                disabled=True,
+                label_visibility="collapsed",
+            )
 
-            with col2:
-                submitted = st.form_submit_button("次へ →", type="primary", use_container_width=True)
+    st.markdown("---")
 
-            if back:
-                st.session_state.strategy_step = 3
-                st.rerun()
+    col1, col2 = st.columns(2)
 
-            if submitted:
-                # 編集後のPainを保存
-                st.session_state.strategy_data["pains"] = [p for p in edited_pains if p]
-                st.session_state.strategy_step = 5
-                st.rerun()
-
-    else:
-        # Pain自動生成ボタン
-        if st.button("Painを自動生成（20個）", type="primary", use_container_width=True):
-            with st.spinner("Painを生成中...（約30秒かかります）"):
-                try:
-                    # config = load_config()  # Streamlit Cloud対応: 不要
-                    claude = ClaudeAPI()
-
-                    # ペルソナ情報を取得（文字列として保存されている）
-                    persona_text = st.session_state.strategy_data.get("persona", "")
-
-                    prompt_data = load_prompt(
-                        chapter="chapter1",
-                        prompt_name="pain_extraction",
-                        variables={
-                            "persona": persona_text,
-                            "target": st.session_state.strategy_data["target"],
-                        },
-                    )
-
-                    response = claude.generate_text(
-                        prompt=prompt_data["user"],
-                        system_prompt=prompt_data.get("system"),
-                        temperature=prompt_data.get("temperature", 0.7),
-                        max_tokens=prompt_data.get("max_tokens", 3000),
-                    )
-
-                    # レスポンスをパース
-                    pains = _parse_pains(response)
-
-                    if pains:
-                        st.session_state.strategy_data["pains"] = pains
-                        st.success(f"{len(pains)}個のPainを生成しました！")
-                        st.rerun()
-                    else:
-                        st.error("Painの生成に失敗しました。もう一度お試しください。")
-
-                except Exception as e:
-                    st.error(f"エラーが発生しました: {e}")
-
-        st.markdown("---")
-
-        if st.button("← 戻る", use_container_width=True):
-            st.session_state.strategy_step = 3
+    with col1:
+        if st.button("← コンセプト選択に戻る", use_container_width=True):
+            st.session_state.strategy_step = 2
             st.rerun()
 
+    with col2:
+        if st.button("保存して完了", type="primary", use_container_width=True):
+            # プロフィール選択を保存
+            if profiles:
+                st.session_state.strategy_data["selected_profile"] = profiles[selected_profile_index]
+                st.session_state.strategy_data["selected_profile_index"] = selected_profile_index
+
+            # StateManagerに保存
+            state_manager = StateManager(project_name)
+            state_manager.save_state(
+                chapter=1,
+                step="completed",
+                data=st.session_state.strategy_data,
+                metadata={
+                    "project_name": project_name,
+                    "target": st.session_state.strategy_data.get("target", ""),
+                    "concept": st.session_state.strategy_data.get("selected_concept", ""),
+                    **project_state.get("metadata", {}),
+                }
+            )
+
+            st.success("戦略設計を保存しました！")
+            st.balloons()
+
+            # セッションをリセット
+            st.session_state.strategy_step = 1
+            st.session_state.strategy_data = {}
+
+            st.info("次は「コンテンツ量産」ページで企画・台本を生成してください。")
 
 def _parse_pains(response: str) -> list:
     """
@@ -702,212 +702,6 @@ def _parse_pains(response: str) -> list:
                     break
 
     return pains[:20]
-
-
-def _render_step5_usp_future():
-    """ステップ5: USP＋Futureの定義（Claude API自動生成）"""
-    st.subheader("ステップ5: USP＋Futureの定義")
-
-    st.markdown("""
-    ペルソナのPain（20個）をもとに、「USP（常識の破壊）」と「Future（感情的解放）」を自動生成します。
-    """)
-
-    # USP+Futureが既に生成されている場合
-    usp_future_text = st.session_state.strategy_data.get("usp_future", "")
-
-    if usp_future_text:
-        st.success("USP＋Futureを生成済み")
-
-        # 生成されたUSP+Futureを表示・編集可能に
-        st.subheader("生成されたUSP＋Future")
-
-        edited_usp_future = st.text_area(
-            "USP＋Futureの内容（編集可能）",
-            value=usp_future_text,
-            height=400,
-            help="必要に応じて内容を編集できます"
-        )
-
-        # 編集内容を保存
-        if edited_usp_future != usp_future_text:
-            st.session_state.strategy_data["usp_future"] = edited_usp_future
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            if st.button("← 戻る", use_container_width=True):
-                st.session_state.strategy_step = 4
-                st.rerun()
-
-        with col2:
-            if st.button("再生成", use_container_width=True):
-                # USP+Futureをクリアして再生成
-                st.session_state.strategy_data["usp_future"] = ""
-                st.rerun()
-
-        with col3:
-            if st.button("次へ →", type="primary", use_container_width=True):
-                st.session_state.strategy_data["usp_future"] = edited_usp_future
-
-                # ファイルに永続化
-                _save_strategy_data(
-                    st.session_state.current_project,
-                    6,  # 次のステップ
-                    st.session_state.strategy_data
-                )
-
-                st.session_state.strategy_step = 6
-                st.rerun()
-
-    else:
-        # USP+Future生成ボタン
-        if st.button("USP＋Futureを自動生成", type="primary", use_container_width=True):
-            with st.spinner("USP＋Futureを生成中...（約30秒かかります）"):
-                try:
-                    # 設定を読み込み
-                    # config = load_config()  # Streamlit Cloud対応: 不要
-                    claude = ClaudeAPI()
-
-                    # Painリストを整形
-                    pains = st.session_state.strategy_data.get("pains", [])
-                    pains_text = "\n".join([f"{i+1}. {pain}" for i, pain in enumerate(pains)])
-
-                    # プロンプトを読み込み
-                    prompt_data = load_prompt(
-                        chapter="chapter1",
-                        prompt_name="usp_future_generation",
-                        variables={
-                            "pains": pains_text,
-                            "service": st.session_state.strategy_data["service"],
-                        },
-                    )
-
-                    # Claude APIで生成
-                    response = claude.generate_text(
-                        prompt=prompt_data["user"],
-                        system_prompt=prompt_data.get("system"),
-                        temperature=prompt_data.get("temperature", 0.8),
-                        max_tokens=prompt_data.get("max_tokens", 2000),
-                    )
-
-                    # レスポンスを保存
-                    if response:
-                        st.session_state.strategy_data["usp_future"] = response
-                        st.success("USP＋Futureを生成しました！")
-                        st.rerun()
-                    else:
-                        st.error("USP＋Futureの生成に失敗しました。もう一度お試しください。")
-
-                except FileNotFoundError:
-                    error_helpers.show_config_not_found_error()
-                except Exception as e:
-                    st.error(f"エラーが発生しました: {e}")
-                    # エラーの詳細を表示
-                    with st.expander("エラーの詳細"):
-                        import traceback
-                        st.code(traceback.format_exc(), language="text")
-
-        st.markdown("---")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            if st.button("← 戻る", use_container_width=True):
-                st.session_state.strategy_step = 4
-                st.rerun()
-
-
-def _render_step6_profile():
-    """ステップ6: プロフィール文作成"""
-    st.subheader("ステップ6: プロフィール文作成")
-
-    st.markdown("""
-    SNSアカウントのプロフィール文を自動生成します。3案生成されるので、最も良いものを選択してください。
-    """)
-
-    profiles = st.session_state.strategy_data.get("profiles", [])
-
-    if profiles:
-        st.success(f"{len(profiles)}案のプロフィール文を生成済み")
-
-        # プロフィール選択
-        selected_profile_index = st.radio(
-            "採用するプロフィール文を選択してください",
-            range(len(profiles)),
-            format_func=lambda i: f"案{i+1}",
-            key="selected_profile",
-        )
-
-        st.text_area(
-            "プロフィール文",
-            value=profiles[selected_profile_index],
-            height=150,
-            disabled=True,
-        )
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            if st.button("← 戻る", use_container_width=True):
-                st.session_state.strategy_step = 5
-                st.rerun()
-
-        with col2:
-            if st.button("再生成", use_container_width=True):
-                # プロフィールをクリアして再生成
-                st.session_state.strategy_data["profiles"] = []
-                st.rerun()
-
-        with col3:
-            if st.button("次へ →", type="primary", use_container_width=True):
-                st.session_state.strategy_data["selected_profile"] = profiles[selected_profile_index]
-                st.session_state.strategy_data["selected_profile_index"] = selected_profile_index
-                st.session_state.strategy_step = 7
-                st.rerun()
-
-    else:
-        # プロフィール生成ボタン
-        if st.button("プロフィール文を生成（3案）", type="primary", use_container_width=True):
-            with st.spinner("プロフィール文を生成中...（約20秒かかります）"):
-                try:
-                    # config = load_config()  # Streamlit Cloud対応: 不要
-                    claude = ClaudeAPI()
-
-                    prompt_data = load_prompt(
-                        chapter="chapter1",
-                        prompt_name="profile_generation",
-                        variables={
-                            "concept": st.session_state.strategy_data["selected_concept"],
-                            "usp_future": st.session_state.strategy_data.get("usp_future", ""),
-                            "target": st.session_state.strategy_data["target"],
-                        },
-                    )
-
-                    response = claude.generate_text(
-                        prompt=prompt_data["user"],
-                        system_prompt=prompt_data.get("system"),
-                        temperature=prompt_data.get("temperature", 0.8),
-                        max_tokens=prompt_data.get("max_tokens", 2000),
-                    )
-
-                    # レスポンスをパース
-                    profiles = _parse_profiles(response)
-
-                    if profiles:
-                        st.session_state.strategy_data["profiles"] = profiles
-                        st.success(f"{len(profiles)}案のプロフィール文を生成しました！")
-                        st.rerun()
-                    else:
-                        st.error("プロフィール文の生成に失敗しました。もう一度お試しください。")
-
-                except Exception as e:
-                    st.error(f"エラーが発生しました: {e}")
-
-        st.markdown("---")
-
-        if st.button("← 戻る", use_container_width=True):
-            st.session_state.strategy_step = 5
-            st.rerun()
 
 
 def _parse_profiles(response: str) -> list:
@@ -948,78 +742,6 @@ def _parse_profiles(response: str) -> list:
         profiles.append("\n".join(current_profile))
 
     return profiles[:3]
-
-
-def _render_step7_confirmation(project_name: str, project_state: dict):
-    """ステップ7: 最終確認と保存"""
-    st.subheader("ステップ7: 最終確認")
-
-    st.markdown("""
-    全ての入力が完了しました！内容を確認して、保存してください。
-    """)
-
-    # 入力内容の確認
-    st.subheader("入力内容")
-
-    with st.expander("基本情報", expanded=True):
-        st.markdown(f"**役割:** {st.session_state.strategy_data.get('role', '')}")
-        st.markdown(f"**サービス:** {st.session_state.strategy_data.get('service', '')}")
-        st.markdown(f"**ターゲット:** {st.session_state.strategy_data.get('target', '')}")
-
-    with st.expander("勝ち筋コンセプト"):
-        st.markdown(f"**選択したコンセプト:** {st.session_state.strategy_data.get('selected_concept', '')}")
-
-    with st.expander("ペルソナ"):
-        persona_text = st.session_state.strategy_data.get("persona", "")
-        st.text_area("", value=persona_text, height=300, disabled=True)
-
-    with st.expander("Pain（最初の5個のみ表示）"):
-        pains = st.session_state.strategy_data.get("pains", [])
-        for i, pain in enumerate(pains[:5], 1):
-            st.markdown(f"{i}. {pain}")
-        if len(pains) > 5:
-            st.markdown(f"...他{len(pains) - 5}個")
-
-    with st.expander("USP＋Future"):
-        usp_future_text = st.session_state.strategy_data.get("usp_future", "")
-        st.text_area("", value=usp_future_text, height=200, disabled=True)
-
-    with st.expander("プロフィール文"):
-        st.markdown(st.session_state.strategy_data.get("selected_profile", ""))
-
-    st.markdown("---")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button("← 戻る", use_container_width=True):
-            st.session_state.strategy_step = 6
-            st.rerun()
-
-    with col2:
-        if st.button("保存して完了", type="primary", use_container_width=True):
-            # StateManagerに保存
-            state_manager = StateManager(project_name)
-
-            state_manager.save_state(
-                chapter=1,
-                step="completed",
-                data=st.session_state.strategy_data,
-                metadata={
-                    "project_name": project_name,
-                    "target": st.session_state.strategy_data.get("target", ""),
-                    "concept": st.session_state.strategy_data.get("selected_concept", ""),
-                }
-            )
-
-            st.success("戦略設計を保存しました！")
-            st.balloons()
-
-            # セッションをリセット
-            st.session_state.strategy_step = 1
-            st.session_state.strategy_data = {}
-
-            st.info("次は「コンテンツ量産」ページで企画・台本を生成してください。")
 
 
 if __name__ == "__main__":
