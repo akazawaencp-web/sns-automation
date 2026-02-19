@@ -238,6 +238,7 @@ def _render_step1_basic_info():
         "SIer",
         "ITコンサル",
         "Webマーケティング",
+        "その他（自分で入力）",
     ]
 
     # デフォルトの選択を設定
@@ -253,12 +254,31 @@ def _render_step1_basic_info():
         label_visibility="collapsed",
     )
 
+    # 「その他」選択時のテキスト入力
+    custom_target = ""
+    if selected_target == "その他（自分で入力）":
+        custom_target = st.text_input(
+            "ターゲットを入力",
+            value=st.session_state.strategy_data.get("custom_target", ""),
+            placeholder="例: 建設業界の現場監督",
+        )
+
     # 次へボタン
     if st.button("次へ →", use_container_width=True, type="primary"):
+        # 「その他」の場合は入力値を使用
+        if selected_target == "その他（自分で入力）":
+            if not custom_target:
+                st.warning("ターゲットを入力してください")
+                st.stop()
+            final_target = custom_target
+            st.session_state.strategy_data["custom_target"] = custom_target
+        else:
+            final_target = selected_target
+
         # 固定値を設定
         st.session_state.strategy_data["role"] = "元業界人・キャリアチェンジ経験者"
         st.session_state.strategy_data["service"] = "業界のリアルと後悔しないキャリア選択を発信"
-        st.session_state.strategy_data["target"] = selected_target
+        st.session_state.strategy_data["target"] = final_target
 
         # ファイルに永続化
         _save_strategy_data(
