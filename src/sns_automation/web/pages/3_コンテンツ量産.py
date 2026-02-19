@@ -24,6 +24,32 @@ from sns_automation.chapter3_content import ContentAutomation
 from sns_automation.web.components import render_feedback_form
 
 
+def _render_loading(container, title: str, subtitle: str = ""):
+    """アニメーション付きローディング表示"""
+    container.markdown(f"""
+    <div style="
+        display: flex; align-items: center; gap: 1.2rem;
+        padding: 1.5rem 2rem; margin: 1rem 0;
+        background: linear-gradient(135deg, rgba(234,135,104,0.06) 0%, rgba(51,182,222,0.06) 100%);
+        border: 1px solid rgba(234,135,104,0.15);
+        border-radius: 1rem;
+    ">
+        <div style="
+            width: 40px; height: 40px; border-radius: 50%;
+            border: 3px solid rgba(234,135,104,0.2);
+            border-top-color: #ea8768;
+            animation: spin 0.8s linear infinite;
+            flex-shrink: 0;
+        "></div>
+        <div>
+            <div style="font-weight: 600; font-size: 1rem; color: #1e293b;">{title}</div>
+            <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.2rem;">{subtitle}</div>
+        </div>
+    </div>
+    <style>@keyframes spin {{ from {{ transform: rotate(0deg); }} to {{ transform: rotate(360deg); }} }}</style>
+    """, unsafe_allow_html=True)
+
+
 def _create_copy_button(text: str, button_text: str = "📋 コピー", key: str = None):
     """
     クリップボードにコピーするボタンを作成
@@ -498,11 +524,6 @@ def _display_script_details(script: dict):
         # 日本語説明と英語プロンプトを分離
         mj_sections = _extract_midjourney_sections(sections["midjourney"])
 
-        # デバッグ情報（一時的）
-        with st.expander("🔍 デバッグ情報"):
-            st.write("日本語セクション:", mj_sections["ja"][:100] if mj_sections["ja"] else "なし")
-            st.write("英語セクション:", mj_sections["en"][:100] if mj_sections["en"] else "なし")
-
         # 日本語プロンプト（見出しなし）
         if mj_sections["ja"]:
             # コピーボタンを配置
@@ -592,90 +613,38 @@ def _generate_multiple_scripts(project_name: str, project_state: dict, ideas: li
         ideas: 企画リスト
         selected_indices: 選択された企画のインデックスリスト
     """
-    # デバッグ情報を表示
-    debug_expander = st.expander("デバッグ情報を見る")
-
     generated_count = 0
     skipped_count = 0
     error_count = 0
+    loading = st.empty()
 
     try:
-        # Chapter 1のデータを取得
         chapter1_data = project_state.get("data", {})
-
-        # ContentAutomationを初期化（Streamlit環境ではst.secretsから自動取得）
         automation = ContentAutomation(project_name=project_name)
 
-        status = st.status(f"台本を一括生成中...（{len(selected_indices)}件）", expanded=True)
-
-        with debug_expander:
-            st.write(f"選択された企画インデックス: {selected_indices}")
-
-        # 各企画の台本を生成
         for i, idx in enumerate(selected_indices):
             idea = ideas[idx]
             script_key = f"script_{idx}"
+            title = idea.get('title', '（タイトルなし）')
 
-            status.write(f"台本を生成中 ({i+1}/{len(selected_indices)}): {idea.get('title', '（タイトルなし）')}")
+            _render_loading(loading, f"台本を生成中 ({i+1}/{len(selected_indices)})", title)
 
-            with debug_expander:
-                st.write(f"--- 企画 #{idx+1} ---")
-                st.write(f"script_key: {script_key}")
-
-            # 既に台本が生成されている場合はスキップ
             if script_key in project_state.get("data", {}):
-                with debug_expander:
-                    st.write("→ スキップ（既に生成済み）")
                 skipped_count += 1
                 continue
 
             try:
-                # 台本を生成
-                with debug_expander:
-                    st.write("→ 台本を生成中...")
-
                 script = automation.generate_script(idea, chapter1_data)
 
-                with debug_expander:
-                    st.write("→ 生成成功")
-                    st.write(f"  - 台本文字数: {len(script.get('full_script', ''))}")
-                    st.write(f"  - ナレーション文字数: {len(script.get('narration', ''))}")
-
-                    # 台本全文をデバッグ表示（Midjourneyセクションの確認用）
-                    full_script_text = script.get('full_script', '')
-                    if 'midjourney' in full_script_text.lower():
-                        st.write("**📝 台本全文（Midjourneyセクションのみ）:**")
-                        # Midjourneyセクションだけを抽出して表示
-                        import re
-                        mj_section_match = re.search(
-                            r'(##?\s*.*?midjourney.*?)(##?\s*(?:台本表|ナレーション))',
-                            full_script_text,
-                            re.DOTALL | re.IGNORECASE
-                        )
-                        if mj_section_match:
-                            st.code(mj_section_match.group(1), language="markdown")
-
-                # プロジェクト状態を更新
                 if "data" not in project_state:
                     project_state["data"] = {}
-
                 project_state["data"][script_key] = script
                 generated_count += 1
 
-                with debug_expander:
-                    st.write("→ プロジェクト状態に保存完了")
-
-            except Exception as e:
+            except Exception:
                 error_count += 1
-                with debug_expander:
-                    st.error(f"→ エラー: {e}")
-                    import traceback
-                    st.code(traceback.format_exc())
 
-        # StateManagerで状態を保存（ローカル + Google Sheets）
-        with debug_expander:
-            st.write(f"--- StateManagerで保存中 ---")
-            st.write(f"プロジェクト名: {project_name}")
+        _render_loading(loading, "保存中...", "Google Sheetsに同期しています")
 
         state_manager = StateManager(project_name)
         state_manager.save_state(
@@ -685,29 +654,17 @@ def _generate_multiple_scripts(project_name: str, project_state: dict, ideas: li
             metadata=project_state.get("metadata", {}),
         )
 
-        # rerun時にGoogle Sheetsの読み込み遅延を回避するためキャッシュ
         st.session_state[f"_project_state_cache_{project_name}"] = project_state
+        loading.empty()
 
-        with debug_expander:
-            st.write("→ ローカルファイル + Google Sheetsに保存完了")
-
-        status.update(
-            label=f"台本生成完了（{generated_count}件生成 / {skipped_count}件スキップ / {error_count}件エラー）",
-            state="complete",
-            expanded=False,
-        )
-
-        # 結果サマリー
         st.success(f"台本生成完了: {generated_count}件生成、{skipped_count}件スキップ、{error_count}件エラー")
 
         if generated_count > 0:
             st.balloons()
 
     except Exception as e:
-        status.update(label="台本生成中にエラーが発生しました", state="error")
+        loading.empty()
         st.error(f"エラーが発生しました: {e}")
-        import traceback
-        st.code(traceback.format_exc())
 
     finally:
         # フラグをクリア
@@ -724,23 +681,20 @@ def _generate_ideas(project_name: str, project_state: dict):
         project_name: プロジェクト名
         project_state: プロジェクト状態
     """
+    loading = st.empty()
+
     try:
-        # Chapter 1のデータを取得
         chapter1_data = project_state.get("data", {})
 
-        status = st.status("企画を生成中...", expanded=True)
-        status.write("Claude APIを呼び出しています...")
+        _render_loading(loading, "企画を生成中", "AIが20案の企画を考えています...")
 
-        # ContentAutomationを初期化（Streamlit環境ではst.secretsから自動取得）
         automation = ContentAutomation(project_name=project_name)
 
-        # 企画を生成（20案）
-        # 追加生成時は既存企画を渡してネタ被りを回避
         existing_ideas = None
         if st.session_state.get("add_more_ideas"):
             existing_ideas = project_state.get("data", {}).get("ideas", [])
 
-        ideas = _generate_ideas_non_interactive(automation, chapter1_data, status, existing_ideas=existing_ideas)
+        ideas = _generate_ideas_non_interactive(automation, chapter1_data, loading, existing_ideas=existing_ideas)
 
         if ideas:
             # プロジェクト状態を更新
@@ -776,20 +730,17 @@ def _generate_ideas(project_name: str, project_state: dict):
             # rerun時にGoogle Sheetsの読み込み遅延を回避するためキャッシュ
             st.session_state[f"_project_state_cache_{project_name}"] = project_state
 
-            status.update(label=f"企画生成完了（{len(ideas)}本）", state="complete", expanded=False)
-
+            loading.empty()
             st.success(f"{len(ideas)}本の企画を生成しました")
             st.balloons()
 
         else:
-            status.update(label="企画の生成に失敗しました", state="error")
+            loading.empty()
             st.error("企画の生成に失敗しました")
 
     except Exception as e:
-        status.update(label="企画生成中にエラーが発生しました", state="error")
+        loading.empty()
         st.error(f"エラーが発生しました: {e}")
-        import traceback
-        st.code(traceback.format_exc())
 
     finally:
         # フラグをクリア
@@ -798,14 +749,14 @@ def _generate_ideas(project_name: str, project_state: dict):
         st.session_state.add_more_ideas = False
 
 
-def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data: dict, status, existing_ideas: list = None) -> list:
+def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data: dict, loading, existing_ideas: list = None) -> list:
     """
     企画を非対話的に生成（WebUI用）
 
     Args:
         automation: ContentAutomationインスタンス
         strategy_data: Chapter 1の戦略データ
-        status: st.statusコンテナ
+        loading: st.empty()コンテナ
         existing_ideas: 既存の企画リスト（追加生成時にネタ被りを避けるため）
 
     Returns:
@@ -823,7 +774,7 @@ def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data
     pains_list = strategy_data.get("pains", [])
     pains = "\n".join(f"{i}. {p}" for i, p in enumerate(pains_list, 1))
 
-    status.write("プロンプトを準備中...")
+    _render_loading(loading, "プロンプトを準備中", "戦略データを整形しています...")
 
     # 追加生成時は既存企画を含むプロンプトを使用
     if existing_ideas:
@@ -850,7 +801,7 @@ def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data
             },
         )
 
-    status.write("Claude APIで企画を生成中...（数十秒かかります）")
+    _render_loading(loading, "Claude APIで企画を生成中", "数十秒かかります...")
 
     # Claude APIを呼び出し
     response = automation.claude.generate_text(
@@ -860,7 +811,7 @@ def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data
         max_tokens=prompt_data.get("max_tokens", 8000),
     )
 
-    status.write("レスポンスを解析中...")
+    _render_loading(loading, "レスポンスを解析中", "企画を整理しています...")
 
     # レスポンスをパース
     ideas = automation._parse_ideas(response)
@@ -869,7 +820,7 @@ def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data
     for i, idea in enumerate(ideas):
         idea["no"] = str(i + 1)
 
-    status.write("企画を保存中...")
+    _render_loading(loading, "企画を保存中", "Google Sheetsに同期しています...")
 
     return ideas
 

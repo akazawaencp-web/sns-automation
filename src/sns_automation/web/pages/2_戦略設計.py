@@ -19,6 +19,32 @@ from sns_automation.utils import (
 from sns_automation.web.components import render_feedback_form
 
 
+def _render_loading(container, title: str, subtitle: str = ""):
+    """アニメーション付きローディング表示"""
+    container.markdown(f"""
+    <div style="
+        display: flex; align-items: center; gap: 1.2rem;
+        padding: 1.5rem 2rem; margin: 1rem 0;
+        background: linear-gradient(135deg, rgba(234,135,104,0.06) 0%, rgba(51,182,222,0.06) 100%);
+        border: 1px solid rgba(234,135,104,0.15);
+        border-radius: 1rem;
+    ">
+        <div style="
+            width: 40px; height: 40px; border-radius: 50%;
+            border: 3px solid rgba(234,135,104,0.2);
+            border-top-color: #ea8768;
+            animation: spin 0.8s linear infinite;
+            flex-shrink: 0;
+        "></div>
+        <div>
+            <div style="font-weight: 600; font-size: 1rem; color: #1e293b;">{title}</div>
+            <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.2rem;">{subtitle}</div>
+        </div>
+    </div>
+    <style>@keyframes spin {{ from {{ transform: rotate(0deg); }} to {{ transform: rotate(360deg); }} }}</style>
+    """, unsafe_allow_html=True)
+
+
 def _save_strategy_data(project_name: str, step: int, strategy_data: dict):
     """
     戦略設計のデータを保存する（StateManager経由でローカル + Google Sheets）
@@ -346,72 +372,46 @@ def _render_step2_concept_generation():
     else:
         # コンセプト生成ボタン
         if st.button("勝ち筋コンセプト20案を生成", type="primary", use_container_width=True):
-            with st.status("コンセプトを生成中...", expanded=True) as status:
-                try:
-                    # 設定を読み込み
-                    # config = load_config()  # Streamlit Cloud対応: 不要
-                    claude = ClaudeAPI()
+            loading = st.empty()
+            try:
+                claude = ClaudeAPI()
 
-                    # プロンプトを読み込み
-                    variables = {
-                        "role": st.session_state.strategy_data["role"],
-                        "service": st.session_state.strategy_data["service"],
-                        "target": st.session_state.strategy_data["target"],
-                    }
+                variables = {
+                    "role": st.session_state.strategy_data["role"],
+                    "service": st.session_state.strategy_data["service"],
+                    "target": st.session_state.strategy_data["target"],
+                }
 
-                    # デバッグ: 変数を表示
-                    with st.expander("デバッグ: 送信する変数"):
-                        st.json(variables)
+                _render_loading(loading, "コンセプト20案を生成中", "AIが勝ち筋を分析しています...")
 
-                    st.write("プロンプトを準備中...")
+                prompt_data = load_prompt(
+                    chapter="chapter1",
+                    prompt_name="concept_generation",
+                    variables=variables,
+                )
 
-                    prompt_data = load_prompt(
-                        chapter="chapter1",
-                        prompt_name="concept_generation",
-                        variables=variables,
-                    )
+                response = claude.generate_text(
+                    prompt=prompt_data["user"],
+                    system_prompt=prompt_data.get("system"),
+                    temperature=prompt_data.get("temperature", 0.9),
+                    max_tokens=prompt_data.get("max_tokens", 4000),
+                )
 
-                    # デバッグ: 実際のプロンプトを表示
-                    with st.expander("デバッグ: 実際に送信するプロンプト"):
-                        st.text_area("User Prompt", prompt_data["user"], height=300)
+                concepts = _parse_concepts(response)
 
-                    st.write("Claude APIを呼び出し中...（約30秒かかります）")
+                loading.empty()
+                if concepts:
+                    st.session_state.strategy_data["concepts"] = concepts
+                    st.rerun()
+                else:
+                    st.error("コンセプトの生成に失敗しました。もう一度お試しください。")
 
-                    # Claude APIで生成
-                    response = claude.generate_text(
-                        prompt=prompt_data["user"],
-                        system_prompt=prompt_data.get("system"),
-                        temperature=prompt_data.get("temperature", 0.9),
-                        max_tokens=prompt_data.get("max_tokens", 4000),
-                    )
-
-                    st.write("レスポンスを解析中...")
-
-                    # レスポンスをパース
-                    concepts = _parse_concepts(response)
-
-                    if concepts:
-                        st.session_state.strategy_data["concepts"] = concepts
-                        status.update(label=f"コンセプト生成完了（{len(concepts)}案）", state="complete", expanded=False)
-                        st.rerun()
-                    else:
-                        status.update(label="コンセプト生成失敗", state="error", expanded=True)
-                        # デバッグ情報を表示
-                        st.error("コンセプトの生成に失敗しました。もう一度お試しください。")
-                        with st.expander("デバッグ情報（開発者向け）"):
-                            st.text("Claude APIのレスポンス（最初の1000文字）:")
-                            st.code(response[:1000], language="text")
-
-                except FileNotFoundError:
-                    status.update(label="設定エラー", state="error")
-                    error_helpers.show_config_not_found_error()
-                except Exception as e:
-                    status.update(label="エラーが発生しました", state="error")
-                    st.error(f"エラーが発生しました: {e}")
-                    # エラーの詳細を表示
-                    with st.expander("エラーの詳細"):
-                        import traceback
-                        st.code(traceback.format_exc(), language="text")
+            except FileNotFoundError:
+                loading.empty()
+                error_helpers.show_config_not_found_error()
+            except Exception as e:
+                loading.empty()
+                st.error(f"エラーが発生しました: {e}")
 
         st.markdown("---")
 
@@ -489,113 +489,113 @@ def _batch_generate_steps_3_to_6() -> bool:
     Returns:
         成功した場合True
     """
+    steps = [
+        ("ペルソナを生成中", "persona"),
+        ("Painを抽出中", "pains"),
+        ("USP＋Futureを生成中", "usp_future"),
+        ("プロフィール文を生成中", "profiles"),
+    ]
+    loading = st.empty()
+
     try:
         claude = ClaudeAPI()
 
-        status = st.status("戦略を一括生成中...", expanded=True)
+        for step_idx, (step_label, step_key) in enumerate(steps):
+            _render_loading(loading, f"{step_label} ({step_idx+1}/4)", "AIが戦略を組み立てています...")
 
-        # --- ステップ3: ペルソナ生成 ---
-        status.write("ペルソナを生成中... (1/4)")
-        if not st.session_state.strategy_data.get("persona"):
-            prompt_data = load_prompt(
-                chapter="chapter1",
-                prompt_name="persona_definition",
-                variables={
-                    "concept": st.session_state.strategy_data["selected_concept"],
-                },
-            )
-            response = claude.generate_text(
-                prompt=prompt_data["user"],
-                system_prompt=prompt_data.get("system"),
-                temperature=prompt_data.get("temperature", 0.7),
-                max_tokens=prompt_data.get("max_tokens", 3000),
-            )
-            if not response:
-                st.error("ペルソナの生成に失敗しました")
-                return False
-            st.session_state.strategy_data["persona"] = response
+            if step_key == "persona" and not st.session_state.strategy_data.get("persona"):
+                prompt_data = load_prompt(
+                    chapter="chapter1",
+                    prompt_name="persona_definition",
+                    variables={"concept": st.session_state.strategy_data["selected_concept"]},
+                )
+                response = claude.generate_text(
+                    prompt=prompt_data["user"],
+                    system_prompt=prompt_data.get("system"),
+                    temperature=prompt_data.get("temperature", 0.7),
+                    max_tokens=prompt_data.get("max_tokens", 3000),
+                )
+                if not response:
+                    loading.empty()
+                    st.error("ペルソナの生成に失敗しました")
+                    return False
+                st.session_state.strategy_data["persona"] = response
 
-        # --- ステップ4: Pain抽出 ---
-        status.write("Painを抽出中... (2/4)")
-        if not st.session_state.strategy_data.get("pains"):
-            persona_text = st.session_state.strategy_data.get("persona", "")
-            prompt_data = load_prompt(
-                chapter="chapter1",
-                prompt_name="pain_extraction",
-                variables={
-                    "persona": persona_text,
-                    "target": st.session_state.strategy_data["target"],
-                },
-            )
-            response = claude.generate_text(
-                prompt=prompt_data["user"],
-                system_prompt=prompt_data.get("system"),
-                temperature=prompt_data.get("temperature", 0.7),
-                max_tokens=prompt_data.get("max_tokens", 3000),
-            )
-            pains = _parse_pains(response) if response else []
-            if not pains:
-                st.error("Painの生成に失敗しました")
-                return False
-            st.session_state.strategy_data["pains"] = pains
+            elif step_key == "pains" and not st.session_state.strategy_data.get("pains"):
+                persona_text = st.session_state.strategy_data.get("persona", "")
+                prompt_data = load_prompt(
+                    chapter="chapter1",
+                    prompt_name="pain_extraction",
+                    variables={
+                        "persona": persona_text,
+                        "target": st.session_state.strategy_data["target"],
+                    },
+                )
+                response = claude.generate_text(
+                    prompt=prompt_data["user"],
+                    system_prompt=prompt_data.get("system"),
+                    temperature=prompt_data.get("temperature", 0.7),
+                    max_tokens=prompt_data.get("max_tokens", 3000),
+                )
+                pains = _parse_pains(response) if response else []
+                if not pains:
+                    loading.empty()
+                    st.error("Painの生成に失敗しました")
+                    return False
+                st.session_state.strategy_data["pains"] = pains
 
-        # --- ステップ5: USP+Future ---
-        status.write("USP＋Futureを生成中... (3/4)")
-        if not st.session_state.strategy_data.get("usp_future"):
-            pains = st.session_state.strategy_data.get("pains", [])
-            pains_text = "\n".join([f"{i+1}. {pain}" for i, pain in enumerate(pains)])
-            prompt_data = load_prompt(
-                chapter="chapter1",
-                prompt_name="usp_future_generation",
-                variables={
-                    "pains": pains_text,
-                    "service": st.session_state.strategy_data["service"],
-                },
-            )
-            response = claude.generate_text(
-                prompt=prompt_data["user"],
-                system_prompt=prompt_data.get("system"),
-                temperature=prompt_data.get("temperature", 0.8),
-                max_tokens=prompt_data.get("max_tokens", 2000),
-            )
-            if not response:
-                st.error("USP＋Futureの生成に失敗しました")
-                return False
-            st.session_state.strategy_data["usp_future"] = response
+            elif step_key == "usp_future" and not st.session_state.strategy_data.get("usp_future"):
+                pains = st.session_state.strategy_data.get("pains", [])
+                pains_text = "\n".join([f"{i+1}. {pain}" for i, pain in enumerate(pains)])
+                prompt_data = load_prompt(
+                    chapter="chapter1",
+                    prompt_name="usp_future_generation",
+                    variables={
+                        "pains": pains_text,
+                        "service": st.session_state.strategy_data["service"],
+                    },
+                )
+                response = claude.generate_text(
+                    prompt=prompt_data["user"],
+                    system_prompt=prompt_data.get("system"),
+                    temperature=prompt_data.get("temperature", 0.8),
+                    max_tokens=prompt_data.get("max_tokens", 2000),
+                )
+                if not response:
+                    loading.empty()
+                    st.error("USP＋Futureの生成に失敗しました")
+                    return False
+                st.session_state.strategy_data["usp_future"] = response
 
-        # --- ステップ6: プロフィール生成 ---
-        status.write("プロフィール文を生成中... (4/4)")
-        if not st.session_state.strategy_data.get("profiles"):
-            prompt_data = load_prompt(
-                chapter="chapter1",
-                prompt_name="profile_generation",
-                variables={
-                    "concept": st.session_state.strategy_data["selected_concept"],
-                    "usp_future": st.session_state.strategy_data.get("usp_future", ""),
-                    "target": st.session_state.strategy_data["target"],
-                },
-            )
-            response = claude.generate_text(
-                prompt=prompt_data["user"],
-                system_prompt=prompt_data.get("system"),
-                temperature=prompt_data.get("temperature", 0.8),
-                max_tokens=prompt_data.get("max_tokens", 2000),
-            )
-            profiles = _parse_profiles(response) if response else []
-            if not profiles:
-                st.error("プロフィール文の生成に失敗しました")
-                return False
-            st.session_state.strategy_data["profiles"] = profiles
+            elif step_key == "profiles" and not st.session_state.strategy_data.get("profiles"):
+                prompt_data = load_prompt(
+                    chapter="chapter1",
+                    prompt_name="profile_generation",
+                    variables={
+                        "concept": st.session_state.strategy_data["selected_concept"],
+                        "usp_future": st.session_state.strategy_data.get("usp_future", ""),
+                        "target": st.session_state.strategy_data["target"],
+                    },
+                )
+                response = claude.generate_text(
+                    prompt=prompt_data["user"],
+                    system_prompt=prompt_data.get("system"),
+                    temperature=prompt_data.get("temperature", 0.8),
+                    max_tokens=prompt_data.get("max_tokens", 2000),
+                )
+                profiles = _parse_profiles(response) if response else []
+                if not profiles:
+                    loading.empty()
+                    st.error("プロフィール文の生成に失敗しました")
+                    return False
+                st.session_state.strategy_data["profiles"] = profiles
 
-        status.update(label="一括生成完了！", state="complete", expanded=False)
+        loading.empty()
         return True
 
     except Exception as e:
-        status.update(label="一括生成中にエラーが発生しました", state="error")
+        loading.empty()
         st.error(f"一括生成中にエラーが発生しました: {e}")
-        with st.expander("エラーの詳細"):
-            import traceback
-            st.code(traceback.format_exc(), language="text")
         return False
 
 
