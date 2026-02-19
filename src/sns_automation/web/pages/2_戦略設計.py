@@ -346,7 +346,7 @@ def _render_step2_concept_generation():
     else:
         # コンセプト生成ボタン
         if st.button("勝ち筋コンセプト20案を生成", type="primary", use_container_width=True):
-            with st.spinner("コンセプトを生成中...（約30秒かかります）"):
+            with st.status("コンセプトを生成中...", expanded=True) as status:
                 try:
                     # 設定を読み込み
                     # config = load_config()  # Streamlit Cloud対応: 不要
@@ -363,6 +363,8 @@ def _render_step2_concept_generation():
                     with st.expander("デバッグ: 送信する変数"):
                         st.json(variables)
 
+                    st.write("プロンプトを準備中...")
+
                     prompt_data = load_prompt(
                         chapter="chapter1",
                         prompt_name="concept_generation",
@@ -373,6 +375,8 @@ def _render_step2_concept_generation():
                     with st.expander("デバッグ: 実際に送信するプロンプト"):
                         st.text_area("User Prompt", prompt_data["user"], height=300)
 
+                    st.write("Claude APIを呼び出し中...（約30秒かかります）")
+
                     # Claude APIで生成
                     response = claude.generate_text(
                         prompt=prompt_data["user"],
@@ -381,14 +385,17 @@ def _render_step2_concept_generation():
                         max_tokens=prompt_data.get("max_tokens", 4000),
                     )
 
+                    st.write("レスポンスを解析中...")
+
                     # レスポンスをパース
                     concepts = _parse_concepts(response)
 
                     if concepts:
                         st.session_state.strategy_data["concepts"] = concepts
-                        st.success(f"{len(concepts)}案のコンセプトを生成しました！")
+                        status.update(label=f"コンセプト生成完了（{len(concepts)}案）", state="complete", expanded=False)
                         st.rerun()
                     else:
+                        status.update(label="コンセプト生成失敗", state="error", expanded=True)
                         # デバッグ情報を表示
                         st.error("コンセプトの生成に失敗しました。もう一度お試しください。")
                         with st.expander("デバッグ情報（開発者向け）"):
@@ -396,8 +403,10 @@ def _render_step2_concept_generation():
                             st.code(response[:1000], language="text")
 
                 except FileNotFoundError:
+                    status.update(label="設定エラー", state="error")
                     error_helpers.show_config_not_found_error()
                 except Exception as e:
+                    status.update(label="エラーが発生しました", state="error")
                     st.error(f"エラーが発生しました: {e}")
                     # エラーの詳細を表示
                     with st.expander("エラーの詳細"):
@@ -482,10 +491,11 @@ def _batch_generate_steps_3_to_6() -> bool:
     """
     try:
         claude = ClaudeAPI()
-        progress = st.progress(0, text="一括生成中...")
+
+        status = st.status("戦略を一括生成中...", expanded=True)
 
         # --- ステップ3: ペルソナ生成 ---
-        progress.progress(0.1, text="ペルソナを生成中... (1/4)")
+        status.write("ペルソナを生成中... (1/4)")
         if not st.session_state.strategy_data.get("persona"):
             prompt_data = load_prompt(
                 chapter="chapter1",
@@ -506,7 +516,7 @@ def _batch_generate_steps_3_to_6() -> bool:
             st.session_state.strategy_data["persona"] = response
 
         # --- ステップ4: Pain抽出 ---
-        progress.progress(0.35, text="Painを抽出中... (2/4)")
+        status.write("Painを抽出中... (2/4)")
         if not st.session_state.strategy_data.get("pains"):
             persona_text = st.session_state.strategy_data.get("persona", "")
             prompt_data = load_prompt(
@@ -530,7 +540,7 @@ def _batch_generate_steps_3_to_6() -> bool:
             st.session_state.strategy_data["pains"] = pains
 
         # --- ステップ5: USP+Future ---
-        progress.progress(0.6, text="USP＋Futureを生成中... (3/4)")
+        status.write("USP＋Futureを生成中... (3/4)")
         if not st.session_state.strategy_data.get("usp_future"):
             pains = st.session_state.strategy_data.get("pains", [])
             pains_text = "\n".join([f"{i+1}. {pain}" for i, pain in enumerate(pains)])
@@ -554,7 +564,7 @@ def _batch_generate_steps_3_to_6() -> bool:
             st.session_state.strategy_data["usp_future"] = response
 
         # --- ステップ6: プロフィール生成 ---
-        progress.progress(0.85, text="プロフィール文を生成中... (4/4)")
+        status.write("プロフィール文を生成中... (4/4)")
         if not st.session_state.strategy_data.get("profiles"):
             prompt_data = load_prompt(
                 chapter="chapter1",
@@ -577,10 +587,11 @@ def _batch_generate_steps_3_to_6() -> bool:
                 return False
             st.session_state.strategy_data["profiles"] = profiles
 
-        progress.progress(1.0, text="一括生成完了！")
+        status.update(label="一括生成完了！", state="complete", expanded=False)
         return True
 
     except Exception as e:
+        status.update(label="一括生成中にエラーが発生しました", state="error")
         st.error(f"一括生成中にエラーが発生しました: {e}")
         with st.expander("エラーの詳細"):
             import traceback

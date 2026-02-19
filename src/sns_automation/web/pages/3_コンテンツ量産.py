@@ -189,9 +189,14 @@ def main():
         st.info("プロジェクトを選択してください")
         return
 
-    # 選択したプロジェクトの状態を読み込み（Google Sheets → ローカルの順）
-    state_manager = StateManager(selected_project)
-    project_state = state_manager.load_state()
+    # 選択したプロジェクトの状態を読み込み
+    # 生成直後のrerunではキャッシュから取得（Google Sheetsの読み込み遅延を回避）
+    cache_key = f"_project_state_cache_{selected_project}"
+    if cache_key in st.session_state:
+        project_state = st.session_state.pop(cache_key)
+    else:
+        state_manager = StateManager(selected_project)
+        project_state = state_manager.load_state()
 
     if not project_state:
         st.error(f"プロジェクト「{selected_project}」の読み込みに失敗しました")
@@ -587,10 +592,8 @@ def _generate_multiple_scripts(project_name: str, project_state: dict, ideas: li
         ideas: 企画リスト
         selected_indices: 選択された企画のインデックスリスト
     """
-    st.subheader(f"台本を一括生成中...（{len(selected_indices)}件）")
-
     # デバッグ情報を表示
-    debug_expander = st.expander("🔍 デバッグ情報を見る")
+    debug_expander = st.expander("デバッグ情報を見る")
 
     generated_count = 0
     skipped_count = 0
@@ -603,9 +606,7 @@ def _generate_multiple_scripts(project_name: str, project_state: dict, ideas: li
         # ContentAutomationを初期化（Streamlit環境ではst.secretsから自動取得）
         automation = ContentAutomation(project_name=project_name)
 
-        # プログレスバー
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+        status = st.status(f"台本を一括生成中...（{len(selected_indices)}件）", expanded=True)
 
         with debug_expander:
             st.write(f"選択された企画インデックス: {selected_indices}")
@@ -615,9 +616,7 @@ def _generate_multiple_scripts(project_name: str, project_state: dict, ideas: li
             idea = ideas[idx]
             script_key = f"script_{idx}"
 
-            status_text.text(f"台本を生成中 ({i+1}/{len(selected_indices)}): {idea.get('title', '（タイトルなし）')}")
-            progress = int((i / len(selected_indices)) * 100)
-            progress_bar.progress(progress)
+            status.write(f"台本を生成中 ({i+1}/{len(selected_indices)}): {idea.get('title', '（タイトルなし）')}")
 
             with debug_expander:
                 st.write(f"--- 企画 #{idx+1} ---")
@@ -686,19 +685,26 @@ def _generate_multiple_scripts(project_name: str, project_state: dict, ideas: li
             metadata=project_state.get("metadata", {}),
         )
 
+        # rerun時にGoogle Sheetsの読み込み遅延を回避するためキャッシュ
+        st.session_state[f"_project_state_cache_{project_name}"] = project_state
+
         with debug_expander:
             st.write("→ ローカルファイル + Google Sheetsに保存完了")
 
-        progress_bar.progress(100)
-        status_text.text("完了！")
+        status.update(
+            label=f"台本生成完了（{generated_count}件生成 / {skipped_count}件スキップ / {error_count}件エラー）",
+            state="complete",
+            expanded=False,
+        )
 
         # 結果サマリー
-        st.success(f"✅ 台本生成完了: {generated_count}件生成、{skipped_count}件スキップ、{error_count}件エラー")
+        st.success(f"台本生成完了: {generated_count}件生成、{skipped_count}件スキップ、{error_count}件エラー")
 
         if generated_count > 0:
             st.balloons()
 
     except Exception as e:
+        status.update(label="台本生成中にエラーが発生しました", state="error")
         st.error(f"エラーが発生しました: {e}")
         import traceback
         st.code(traceback.format_exc())
@@ -718,23 +724,15 @@ def _generate_ideas(project_name: str, project_state: dict):
         project_name: プロジェクト名
         project_state: プロジェクト状態
     """
-    st.subheader("企画生成中...")
-
     try:
         # Chapter 1のデータを取得
         chapter1_data = project_state.get("data", {})
 
-        # プログレスバー
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-
-        status_text.text("企画を生成中...（Claude APIを呼び出しています）")
-        progress_bar.progress(10)
+        status = st.status("企画を生成中...", expanded=True)
+        status.write("Claude APIを呼び出しています...")
 
         # ContentAutomationを初期化（Streamlit環境ではst.secretsから自動取得）
         automation = ContentAutomation(project_name=project_name)
-
-        progress_bar.progress(20)
 
         # 企画を生成（20案）
         # 追加生成時は既存企画を渡してネタ被りを回避
@@ -742,7 +740,7 @@ def _generate_ideas(project_name: str, project_state: dict):
         if st.session_state.get("add_more_ideas"):
             existing_ideas = project_state.get("data", {}).get("ideas", [])
 
-        ideas = _generate_ideas_non_interactive(automation, chapter1_data, progress_bar, status_text, existing_ideas=existing_ideas)
+        ideas = _generate_ideas_non_interactive(automation, chapter1_data, status, existing_ideas=existing_ideas)
 
         if ideas:
             # プロジェクト状態を更新
@@ -775,16 +773,20 @@ def _generate_ideas(project_name: str, project_state: dict):
                 metadata=project_state.get("metadata", {}),
             )
 
-            progress_bar.progress(100)
-            status_text.text("完了！")
+            # rerun時にGoogle Sheetsの読み込み遅延を回避するためキャッシュ
+            st.session_state[f"_project_state_cache_{project_name}"] = project_state
+
+            status.update(label=f"企画生成完了（{len(ideas)}本）", state="complete", expanded=False)
 
             st.success(f"{len(ideas)}本の企画を生成しました")
             st.balloons()
 
         else:
+            status.update(label="企画の生成に失敗しました", state="error")
             st.error("企画の生成に失敗しました")
 
     except Exception as e:
+        status.update(label="企画生成中にエラーが発生しました", state="error")
         st.error(f"エラーが発生しました: {e}")
         import traceback
         st.code(traceback.format_exc())
@@ -796,15 +798,14 @@ def _generate_ideas(project_name: str, project_state: dict):
         st.session_state.add_more_ideas = False
 
 
-def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data: dict, progress_bar, status_text, existing_ideas: list = None) -> list:
+def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data: dict, status, existing_ideas: list = None) -> list:
     """
     企画を非対話的に生成（WebUI用）
 
     Args:
         automation: ContentAutomationインスタンス
         strategy_data: Chapter 1の戦略データ
-        progress_bar: Streamlitプログレスバー
-        status_text: Streamlitステータステキスト
+        status: st.statusコンテナ
         existing_ideas: 既存の企画リスト（追加生成時にネタ被りを避けるため）
 
     Returns:
@@ -822,8 +823,7 @@ def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data
     pains_list = strategy_data.get("pains", [])
     pains = "\n".join(f"{i}. {p}" for i, p in enumerate(pains_list, 1))
 
-    status_text.text("プロンプトを準備中...")
-    progress_bar.progress(30)
+    status.write("プロンプトを準備中...")
 
     # 追加生成時は既存企画を含むプロンプトを使用
     if existing_ideas:
@@ -850,8 +850,7 @@ def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data
             },
         )
 
-    status_text.text("Claude APIで企画を生成中...（数十秒かかります）")
-    progress_bar.progress(40)
+    status.write("Claude APIで企画を生成中...（数十秒かかります）")
 
     # Claude APIを呼び出し
     response = automation.claude.generate_text(
@@ -861,8 +860,7 @@ def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data
         max_tokens=prompt_data.get("max_tokens", 8000),
     )
 
-    status_text.text("レスポンスを解析中...")
-    progress_bar.progress(70)
+    status.write("レスポンスを解析中...")
 
     # レスポンスをパース
     ideas = automation._parse_ideas(response)
@@ -871,8 +869,7 @@ def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data
     for i, idea in enumerate(ideas):
         idea["no"] = str(i + 1)
 
-    status_text.text("企画を保存中...")
-    progress_bar.progress(90)
+    status.write("企画を保存中...")
 
     return ideas
 
