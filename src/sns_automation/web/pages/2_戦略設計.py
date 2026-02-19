@@ -199,6 +199,17 @@ def _render_step1_basic_info():
 
     st.markdown("以下から1つ選択してください：")
 
+    # ラジオボタンを2列グリッドで表示
+    st.markdown("""
+        <style>
+        div[data-testid="stRadio"] > div[role="radiogroup"] {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.3rem 2rem;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     # ターゲット選択肢
     target_options = [
         "M&A仲介",
