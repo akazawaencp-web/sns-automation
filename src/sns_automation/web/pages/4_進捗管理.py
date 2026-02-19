@@ -14,7 +14,7 @@ from datetime import datetime
 from html import escape as html_escape
 from sns_automation.utils import StateManager
 from sns_automation.utils.progress_manager import ProgressManager
-from sns_automation.web.components import render_feedback_form
+from sns_automation.web.components import render_feedback_form, inject_styles, render_page_header
 
 logger = logging.getLogger(__name__)
 
@@ -310,19 +310,12 @@ def _render_dashboard(project_states, progress_data, ended_set):
         stats["posted"] += s["counts"]["posted"]
         stats["kpi"] += s["counts"]["kpi"]
 
-    th = (
-        "padding:0.7rem 0.8rem;font-size:0.75rem;font-weight:700;color:#374151;"
-        "text-transform:uppercase;letter-spacing:0.04em;"
-        "border-bottom:2px solid rgba(234,135,104,0.15);text-align:center;"
-    )
-    td = "padding:0.7rem 0.8rem;text-align:center;font-size:0.9rem;color:#1e293b;"
-
     header_cols = [
         "担当者", "アカウント数", "コンテンツ数", "台本済",
         "画像済", "動画済", "ナレ済", "編集済", "投稿済", "分析済",
     ]
     header_html = "".join(
-        f'<th style="{th}{"text-align:left;" if i == 0 else ""}">{c}</th>'
+        f'<th style="text-align:{"left" if i == 0 else "center"};">{c}</th>'
         for i, c in enumerate(header_cols)
     )
 
@@ -331,21 +324,21 @@ def _render_dashboard(project_states, progress_data, ended_set):
         stats = owner_stats[owner]
         rows_html += (
             f"<tr>"
-            f'<td style="{td}text-align:left;font-weight:600;">{html_escape(owner)}</td>'
-            f'<td style="{td}">{stats["accounts"]}</td>'
-            f'<td style="{td}">{stats["contents"]}</td>'
-            f'<td style="{td}">{stats["script"]}</td>'
-            f'<td style="{td}">{stats["midjourney"]}</td>'
-            f'<td style="{td}">{stats["kling_ai"]}</td>'
-            f'<td style="{td}">{stats["eleven_labo"]}</td>'
-            f'<td style="{td}">{stats["capcut"]}</td>'
-            f'<td style="{td}">{stats["posted"]}</td>'
-            f'<td style="{td}">{stats["kpi"]}</td>'
+            f'<td class="cell-name">{html_escape(owner)}</td>'
+            f'<td class="cell-center">{stats["accounts"]}</td>'
+            f'<td class="cell-center">{stats["contents"]}</td>'
+            f'<td class="cell-center">{stats["script"]}</td>'
+            f'<td class="cell-center">{stats["midjourney"]}</td>'
+            f'<td class="cell-center">{stats["kling_ai"]}</td>'
+            f'<td class="cell-center">{stats["eleven_labo"]}</td>'
+            f'<td class="cell-center">{stats["capcut"]}</td>'
+            f'<td class="cell-center">{stats["posted"]}</td>'
+            f'<td class="cell-center">{stats["kpi"]}</td>'
             f"</tr>"
         )
 
     st.markdown(
-        '<div class="prog-table-wrap"><table>'
+        '<div class="app-table"><table>'
         f"<thead><tr>{header_html}</tr></thead>"
         f"<tbody>{rows_html}</tbody>"
         "</table></div>",
@@ -572,15 +565,7 @@ def _render_content_table(pname: str, auto: dict, progress_data: dict):
         if st.session_state.get(f"kpi_open_{pname}_{idx}"):
             _render_kpi_form(pname, idx, kpi_records)
 
-    # ヘッダー行を先頭に表示（列名）
-    st.markdown("""
-    <style>
-    .content-header {
-        display:flex; gap:0; padding:0.3rem 0; border-bottom:1px solid #e5e7eb;
-        font-size:0.7rem; font-weight:700; color:#6b7280; text-transform:uppercase;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    # ヘッダー行は上位のタブで表示
 
 
 def _render_kpi_form(pname: str, content_idx: str, kpi_records: list):
@@ -659,54 +644,8 @@ def main():
         layout="wide",
     )
 
-    # スタイル
-    st.markdown("""
-        <style>
-        .block-container, [data-testid="block-container"] {
-            background: rgba(255, 255, 255, 0.7) !important;
-            backdrop-filter: blur(10px) !important;
-            border-radius: 20px !important;
-            padding: 2rem !important;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.06) !important;
-        }
-        .page-header {
-            font-size: 2.5rem !important;
-            font-weight: 700 !important;
-            color: #121213 !important;
-            margin-bottom: 0.5rem;
-            letter-spacing: -0.02em;
-        }
-        .page-subtitle {
-            color: #828282 !important;
-            font-size: 1.05rem !important;
-            margin-bottom: 2rem;
-        }
-        .prog-table-wrap {
-            border-radius: 16px; overflow: hidden;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.06);
-            border: 1px solid rgba(0,0,0,0.06); background: white;
-        }
-        .prog-table-wrap table {
-            width: 100%; border-collapse: collapse;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        }
-        .prog-table-wrap thead tr {
-            background: linear-gradient(135deg, rgba(234,135,104,0.08) 0%, rgba(51,182,222,0.08) 100%);
-        }
-        .prog-table-wrap tbody tr { transition: background-color 0.2s ease; }
-        .prog-table-wrap tbody tr:hover { background-color: rgba(234,135,104,0.04); }
-        .prog-table-wrap tbody tr:not(:last-child) td { border-bottom: 1px solid rgba(0,0,0,0.04); }
-        .stButton > button {
-            border-radius: 2.9rem !important;
-            font-weight: 500 !important;
-            transition: all 0.3s ease !important;
-        }
-        .stButton > button[kind="primary"] {
-            background: linear-gradient(135deg, #ea8768 0%, #33b6de 100%) !important;
-            color: white !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+    # 共通CSS注入
+    inject_styles()
 
     render_feedback_form()
 
@@ -719,11 +658,7 @@ def main():
             key="progress_updater",
         )
 
-    st.markdown('<div class="page-header">進捗管理</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="page-subtitle">戦略設計から投稿・分析まで、全工程の進捗を一元管理。</div>',
-        unsafe_allow_html=True,
-    )
+    render_page_header("進捗管理", "戦略設計から投稿・分析まで、全工程の進捗を一元管理。")
 
     # 更新ボタン
     col1, col2 = st.columns([8, 1])

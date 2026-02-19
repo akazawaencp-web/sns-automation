@@ -16,33 +16,7 @@ from sns_automation.utils import (
     StateManager,
     error_helpers,
 )
-from sns_automation.web.components import render_feedback_form
-
-
-def _render_loading(container, title: str, subtitle: str = ""):
-    """アニメーション付きローディング表示"""
-    container.markdown(f"""
-    <div style="
-        display: flex; align-items: center; gap: 1.2rem;
-        padding: 1.5rem 2rem; margin: 1rem 0;
-        background: linear-gradient(135deg, rgba(234,135,104,0.06) 0%, rgba(51,182,222,0.06) 100%);
-        border: 1px solid rgba(234,135,104,0.15);
-        border-radius: 1rem;
-    ">
-        <div style="
-            width: 40px; height: 40px; border-radius: 50%;
-            border: 3px solid rgba(234,135,104,0.2);
-            border-top-color: #ea8768;
-            animation: spin 0.8s linear infinite;
-            flex-shrink: 0;
-        "></div>
-        <div>
-            <div style="font-weight: 600; font-size: 1rem; color: #1e293b;">{title}</div>
-            <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.2rem;">{subtitle}</div>
-        </div>
-    </div>
-    <style>@keyframes spin {{ from {{ transform: rotate(0deg); }} to {{ transform: rotate(360deg); }} }}</style>
-    """, unsafe_allow_html=True)
+from sns_automation.web.components import render_feedback_form, inject_styles, render_page_header, render_loading
 
 
 def _save_strategy_data(project_name: str, step: int, strategy_data: dict):
@@ -81,67 +55,13 @@ def main():
         layout="wide",
     )
 
-    # シンプルで洗練されたCSS
-    st.markdown("""
-        <style>
-        /* メインコンテンツエリア */
-        .block-container, [data-testid="block-container"] {
-            background: rgba(255, 255, 255, 0.7) !important;
-            backdrop-filter: blur(10px) !important;
-            border-radius: 20px !important;
-            padding: 2rem !important;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.06) !important;
-        }
-
-        .page-header {
-            font-size: 2.5rem !important;
-            font-weight: 700 !important;
-            color: #121213 !important;
-            margin-bottom: 0.5rem;
-            letter-spacing: -0.02em;
-        }
-
-        .page-subtitle {
-            color: #828282 !important;
-            font-size: 1.05rem !important;
-            margin-bottom: 2rem;
-        }
-
-        .stButton > button {
-            border-radius: 2.9rem !important;
-            font-weight: 500 !important;
-            transition: all 0.3s ease !important;
-        }
-
-        .stButton > button[kind="primary"] {
-            background: linear-gradient(135deg, #ea8768 0%, #33b6de 100%) !important;
-            color: white !important;
-            box-shadow: 0 4px 12px rgba(234, 135, 104, 0.3) !important;
-        }
-
-        .stButton > button[kind="primary"]:hover {
-            box-shadow: 0 6px 20px rgba(234, 135, 104, 0.4) !important;
-            transform: translateY(-1px) !important;
-        }
-
-        .stTextInput > div > div > input,
-        .stTextArea > div > div > textarea {
-            border-radius: 1rem !important;
-            border: 1px solid #d0d0d0 !important;
-            background-color: white !important;
-        }
-
-        .stProgress > div > div {
-            background: linear-gradient(135deg, #ea8768 0%, #33b6de 100%) !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+    # 共通CSS注入
+    inject_styles()
 
     # フィードバックフォーム
     render_feedback_form()
 
-    st.markdown('<div class="page-header">戦略設計</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-subtitle">ステップバイステップで戦略を設計します。各項目を入力して、自動生成を活用してください。</div>', unsafe_allow_html=True)
+    render_page_header("戦略設計", "ステップバイステップで戦略を設計します。各項目を入力して、自動生成を活用してください。")
 
     st.markdown("---")
 
@@ -382,7 +302,7 @@ def _render_step2_concept_generation():
                     "target": st.session_state.strategy_data["target"],
                 }
 
-                _render_loading(loading, "コンセプト20案を生成中", "AIが勝ち筋を分析しています...")
+                render_loading(loading, "コンセプト20案を生成中", "AIが勝ち筋を分析しています...")
 
                 prompt_data = load_prompt(
                     chapter="chapter1",
@@ -501,7 +421,7 @@ def _batch_generate_steps_3_to_6() -> bool:
         claude = ClaudeAPI()
 
         for step_idx, (step_label, step_key) in enumerate(steps):
-            _render_loading(loading, f"{step_label} ({step_idx+1}/4)", "AIが戦略を組み立てています...")
+            render_loading(loading, f"{step_label} ({step_idx+1}/4)", "AIが戦略を組み立てています...")
 
             if step_key == "persona" and not st.session_state.strategy_data.get("persona"):
                 prompt_data = load_prompt(

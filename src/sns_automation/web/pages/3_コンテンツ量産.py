@@ -21,33 +21,7 @@ from sns_automation.utils import (
     StateManager,
 )
 from sns_automation.chapter3_content import ContentAutomation
-from sns_automation.web.components import render_feedback_form
-
-
-def _render_loading(container, title: str, subtitle: str = ""):
-    """アニメーション付きローディング表示"""
-    container.markdown(f"""
-    <div style="
-        display: flex; align-items: center; gap: 1.2rem;
-        padding: 1.5rem 2rem; margin: 1rem 0;
-        background: linear-gradient(135deg, rgba(234,135,104,0.06) 0%, rgba(51,182,222,0.06) 100%);
-        border: 1px solid rgba(234,135,104,0.15);
-        border-radius: 1rem;
-    ">
-        <div style="
-            width: 40px; height: 40px; border-radius: 50%;
-            border: 3px solid rgba(234,135,104,0.2);
-            border-top-color: #ea8768;
-            animation: spin 0.8s linear infinite;
-            flex-shrink: 0;
-        "></div>
-        <div>
-            <div style="font-weight: 600; font-size: 1rem; color: #1e293b;">{title}</div>
-            <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.2rem;">{subtitle}</div>
-        </div>
-    </div>
-    <style>@keyframes spin {{ from {{ transform: rotate(0deg); }} to {{ transform: rotate(360deg); }} }}</style>
-    """, unsafe_allow_html=True)
+from sns_automation.web.components import render_feedback_form, inject_styles, render_page_header, render_loading, inject_slides_table_styles
 
 
 def _create_copy_button(text: str, button_text: str = "📋 コピー", key: str = None):
@@ -125,74 +99,13 @@ def main():
         layout="wide",
     )
 
-    # シンプルで洗練されたCSS
-    st.markdown("""
-        <style>
-        /* メインコンテンツエリア */
-        .block-container, [data-testid="block-container"] {
-            background: rgba(255, 255, 255, 0.7) !important;
-            backdrop-filter: blur(10px) !important;
-            border-radius: 20px !important;
-            padding: 2rem !important;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.06) !important;
-        }
-
-        .page-header {
-            font-size: 2.5rem !important;
-            font-weight: 700 !important;
-            color: #121213 !important;
-            margin-bottom: 0.5rem;
-            letter-spacing: -0.02em;
-        }
-
-        .page-subtitle {
-            color: #828282 !important;
-            font-size: 1.05rem !important;
-            margin-bottom: 2rem;
-        }
-
-        .stButton > button {
-            border-radius: 2.9rem !important;
-            font-weight: 500 !important;
-            transition: all 0.3s ease !important;
-        }
-
-        .stButton > button[kind="primary"] {
-            background: linear-gradient(135deg, #ea8768 0%, #33b6de 100%) !important;
-            color: white !important;
-            box-shadow: 0 4px 12px rgba(234, 135, 104, 0.3) !important;
-        }
-
-        .stButton > button[kind="primary"]:hover {
-            box-shadow: 0 6px 20px rgba(234, 135, 104, 0.4) !important;
-            transform: translateY(-1px) !important;
-        }
-
-        .stTextInput > div > div > input,
-        .stTextArea > div > div > textarea {
-            border-radius: 1rem !important;
-            border: 1px solid #d0d0d0 !important;
-            background-color: white !important;
-        }
-
-        /* ナレーション全文の文字色を黒にする */
-        .stTextArea textarea:disabled {
-            color: #000000 !important;
-            -webkit-text-fill-color: #000000 !important;
-        }
-
-        /* 新規追加行のハイライト */
-        .dataframe tbody tr.new-row {
-            background-color: #fff9e6 !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+    # 共通CSS注入
+    inject_styles()
 
     # フィードバックフォーム
     render_feedback_form()
 
-    st.markdown('<div class="page-header">コンテンツ量産</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-subtitle">企画を生成して、複数選択で一括台本作成。効率的なワークフロー。</div>', unsafe_allow_html=True)
+    render_page_header("コンテンツ量産", "企画を生成して、複数選択で一括台本作成。効率的なワークフロー。")
 
     st.markdown("---")
 
@@ -530,20 +443,7 @@ def _display_script_details(script: dict):
             _create_copy_button(mj_sections["ja"], "📋 日本語をコピー", key="mj_ja")
 
             st.markdown(
-                f"""
-                <div style="
-                    background-color: #f0f2f6;
-                    padding: 1rem;
-                    border-radius: 0.5rem;
-                    border: 1px solid #d0d0d0;
-                    font-family: monospace;
-                    font-size: 14px;
-                    line-height: 1.6;
-                    word-wrap: break-word;
-                    white-space: pre-wrap;
-                    margin-bottom: 1rem;
-                ">{mj_sections["ja"]}</div>
-                """,
+                f'<div class="code-block">{mj_sections["ja"]}</div>',
                 unsafe_allow_html=True,
             )
 
@@ -553,19 +453,7 @@ def _display_script_details(script: dict):
             _create_copy_button(mj_sections["en"], "📋 英語をコピー", key="mj_en")
 
             st.markdown(
-                f"""
-                <div style="
-                    background-color: #f0f2f6;
-                    padding: 1rem;
-                    border-radius: 0.5rem;
-                    border: 1px solid #d0d0d0;
-                    font-family: monospace;
-                    font-size: 14px;
-                    line-height: 1.6;
-                    word-wrap: break-word;
-                    white-space: pre-wrap;
-                ">{mj_sections["en"]}</div>
-                """,
+                f'<div class="code-block">{mj_sections["en"]}</div>',
                 unsafe_allow_html=True,
             )
     else:
@@ -627,7 +515,7 @@ def _generate_multiple_scripts(project_name: str, project_state: dict, ideas: li
             script_key = f"script_{idx}"
             title = idea.get('title', '（タイトルなし）')
 
-            _render_loading(loading, f"台本を生成中 ({i+1}/{len(selected_indices)})", title)
+            render_loading(loading, f"台本を生成中 ({i+1}/{len(selected_indices)})", title)
 
             if script_key in project_state.get("data", {}):
                 skipped_count += 1
@@ -644,7 +532,7 @@ def _generate_multiple_scripts(project_name: str, project_state: dict, ideas: li
             except Exception:
                 error_count += 1
 
-        _render_loading(loading, "保存中...", "Google Sheetsに同期しています")
+        render_loading(loading, "保存中...", "Google Sheetsに同期しています")
 
         state_manager = StateManager(project_name)
         state_manager.save_state(
@@ -686,7 +574,7 @@ def _generate_ideas(project_name: str, project_state: dict):
     try:
         chapter1_data = project_state.get("data", {})
 
-        _render_loading(loading, "企画を生成中", "AIが20案の企画を考えています...")
+        render_loading(loading, "企画を生成中", "AIが20案の企画を考えています...")
 
         automation = ContentAutomation(project_name=project_name)
 
@@ -774,7 +662,7 @@ def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data
     pains_list = strategy_data.get("pains", [])
     pains = "\n".join(f"{i}. {p}" for i, p in enumerate(pains_list, 1))
 
-    _render_loading(loading, "プロンプトを準備中", "戦略データを整形しています...")
+    render_loading(loading, "プロンプトを準備中", "戦略データを整形しています...")
 
     # 追加生成時は既存企画を含むプロンプトを使用
     if existing_ideas:
@@ -801,7 +689,7 @@ def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data
             },
         )
 
-    _render_loading(loading, "Claude APIで企画を生成中", "数十秒かかります...")
+    render_loading(loading, "Claude APIで企画を生成中", "数十秒かかります...")
 
     # Claude APIを呼び出し
     response = automation.claude.generate_text(
@@ -811,7 +699,7 @@ def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data
         max_tokens=prompt_data.get("max_tokens", 8000),
     )
 
-    _render_loading(loading, "レスポンスを解析中", "企画を整理しています...")
+    render_loading(loading, "レスポンスを解析中", "企画を整理しています...")
 
     # レスポンスをパース
     ideas = automation._parse_ideas(response)
@@ -820,7 +708,7 @@ def _generate_ideas_non_interactive(automation: ContentAutomation, strategy_data
     for i, idea in enumerate(ideas):
         idea["no"] = str(i + 1)
 
-    _render_loading(loading, "企画を保存中", "Google Sheetsに同期しています...")
+    render_loading(loading, "企画を保存中", "Google Sheetsに同期しています...")
 
     return ideas
 
@@ -995,77 +883,11 @@ def _display_slides_table(slides: list):
     # カラム名を取得（最初のスライドから）
     columns = list(slides[0].keys())
 
+    # スライドテーブルCSS注入（共通モジュールから）
+    inject_slides_table_styles()
+
     # HTMLテーブルを生成
     html = """
-    <style>
-    .slides-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 14px;
-        margin-top: 1rem;
-    }
-    .slides-table th {
-        background-color: #f0f2f6;
-        color: #31333F;
-        font-weight: 600;
-        padding: 12px;
-        text-align: left;
-        border: 1px solid #d0d0d0;
-        white-space: nowrap;
-    }
-    .slides-table td {
-        padding: 12px;
-        border: 1px solid #d0d0d0;
-        vertical-align: top;
-        word-wrap: break-word;
-        white-space: pre-wrap;
-        line-height: 1.6;
-        position: relative;
-    }
-    .slides-table tr:nth-child(even) {
-        background-color: #f9f9f9;
-    }
-    .slides-table tr:hover {
-        background-color: #f0f2f6;
-    }
-    .col-slide-no {
-        width: 80px;
-        text-align: center;
-    }
-    .col-duration {
-        width: 80px;
-        text-align: center;
-    }
-    .col-narration {
-        width: calc((100% - 160px) / 2);
-    }
-    .col-video-instruction-ja {
-        width: calc((100% - 160px) * 0.35);
-    }
-    .col-video-instruction-en {
-        width: calc((100% - 160px) * 0.15);
-    }
-    .copy-btn-cell {
-        position: absolute;
-        top: 4px;
-        right: 4px;
-        background-color: #f0f2f6;
-        border: 1px solid #d0d0d0;
-        border-radius: 4px;
-        padding: 4px 8px;
-        font-size: 12px;
-        cursor: pointer;
-        transition: all 0.2s;
-        opacity: 0.7;
-    }
-    .copy-btn-cell:hover {
-        opacity: 1;
-        background-color: #e0e2e6;
-    }
-    .cell-content-wrapper {
-        padding-right: 60px; /* コピーボタンのスペースを確保 */
-    }
-    </style>
     <table class="slides-table">
     <thead>
     <tr>

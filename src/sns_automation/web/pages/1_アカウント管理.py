@@ -12,7 +12,7 @@ from pathlib import Path
 from datetime import datetime
 from html import escape as html_escape
 from sns_automation.utils import StateManager
-from sns_automation.web.components import render_feedback_form
+from sns_automation.web.components import render_feedback_form, inject_styles, render_page_header, render_status_badge
 
 logger = logging.getLogger(__name__)
 
@@ -192,62 +192,13 @@ def main():
         layout="wide",
     )
 
-    # シンプルで洗練されたCSS
-    st.markdown("""
-        <style>
-        /* メインコンテンツエリア */
-        .block-container, [data-testid="block-container"] {
-            background: rgba(255, 255, 255, 0.7) !important;
-            backdrop-filter: blur(10px) !important;
-            border-radius: 20px !important;
-            padding: 2rem !important;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.06) !important;
-        }
-
-        .page-header {
-            font-size: 2.5rem !important;
-            font-weight: 700 !important;
-            color: #121213 !important;
-            margin-bottom: 0.5rem;
-            letter-spacing: -0.02em;
-        }
-
-        .page-subtitle {
-            color: #828282 !important;
-            font-size: 1.05rem !important;
-            margin-bottom: 2rem;
-        }
-
-        .stButton > button {
-            border-radius: 2.9rem !important;
-            font-weight: 500 !important;
-            transition: all 0.3s ease !important;
-        }
-
-        .stButton > button[kind="primary"] {
-            background: linear-gradient(135deg, #ea8768 0%, #33b6de 100%) !important;
-            color: white !important;
-            box-shadow: 0 4px 12px rgba(234, 135, 104, 0.3) !important;
-        }
-
-        .stButton > button[kind="primary"]:hover {
-            box-shadow: 0 6px 20px rgba(234, 135, 104, 0.4) !important;
-            transform: translateY(-1px) !important;
-        }
-
-        .stTextInput > div > div > input {
-            border-radius: 1rem !important;
-            border: 1px solid #d0d0d0 !important;
-            background-color: white !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+    # 共通CSS注入
+    inject_styles()
 
     # フィードバックフォーム
     render_feedback_form()
 
-    st.markdown('<div class="page-header">アカウント管理</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-subtitle">最大60アカウントを一元管理。進捗状況を可視化し、効率的な運用をサポート。</div>', unsafe_allow_html=True)
+    render_page_header("アカウント管理", "最大60アカウントを一元管理。進捗状況を可視化し、効率的な運用をサポート。")
 
     st.markdown("---")
 
@@ -504,43 +455,29 @@ def _render_project_table(projects: list):
         else:
             s_label, s_color, s_bg = status_styles.get(chapter, default_status)
         name = html_escape(p["name"])
-        owner = html_escape(p.get("owner", "")) or '<span style="color:#ccc;">-</span>'
-        summary = html_escape(_clean_summary(p["summary"])) if p["summary"] else '<span style="color:#ccc;">-</span>'
+        owner = html_escape(p.get("owner", "")) or '<span class="empty-placeholder">-</span>'
+        summary = html_escape(_clean_summary(p["summary"])) if p["summary"] else '<span class="empty-placeholder">-</span>'
         last_op = _format_last_operation(p["chapter"], p["step"], p["updated_at"])
-        badge = f'<span style="display:inline-block;padding:0.3rem 0.85rem;border-radius:20px;font-size:0.8rem;font-weight:600;color:{s_color};background:{s_bg};">{s_label}</span>'
+        badge = render_status_badge(s_label, s_color, s_bg)
         rows.append(
             f"<tr>"
-            f'<td style="padding:0.85rem 1rem;font-weight:600;color:#1e293b;white-space:nowrap;">{name}</td>'
-            f'<td style="padding:0.85rem 1rem;color:#374151;font-size:0.9rem;white-space:nowrap;">{owner}</td>'
-            f'<td style="padding:0.85rem 1rem;color:#374151;font-size:0.9rem;max-width:350px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{summary}</td>'
-            f'<td style="padding:0.85rem 1rem;text-align:center;">{badge}</td>'
-            f'<td style="padding:0.85rem 1rem;color:#4b5563;font-size:0.85rem;text-align:center;white-space:nowrap;">{last_op}</td>'
+            f'<td class="cell-name">{name}</td>'
+            f'<td class="cell-nowrap">{owner}</td>'
+            f'<td class="cell-truncate">{summary}</td>'
+            f'<td class="cell-center">{badge}</td>'
+            f'<td class="cell-meta">{last_op}</td>'
             f"</tr>"
         )
     rows_html = "\n".join(rows)
 
-    th_style = "padding:0.9rem 1rem;font-size:0.8rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.05em;border-bottom:2px solid rgba(234,135,104,0.15);"
-
     st.markdown(
-        "<style>"
-        ".proj-table-wrap{border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.04),0 4px 16px rgba(0,0,0,0.06);border:1px solid rgba(0,0,0,0.06);background:white;}"
-        ".proj-table-wrap table{width:100%;border-collapse:collapse;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}"
-        ".proj-table-wrap thead tr{background:linear-gradient(135deg,rgba(234,135,104,0.08) 0%,rgba(51,182,222,0.08) 100%);}"
-        ".proj-table-wrap tbody tr{transition:background-color 0.2s ease;}"
-        ".proj-table-wrap tbody tr:hover{background-color:rgba(234,135,104,0.04);}"
-        ".proj-table-wrap tbody tr:not(:last-child) td{border-bottom:1px solid rgba(0,0,0,0.04);}"
-        "</style>",
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        '<div class="proj-table-wrap"><table>'
+        '<div class="app-table"><table>'
         f'<thead><tr>'
-        f'<th style="{th_style}text-align:left;">アカウント名</th>'
-        f'<th style="{th_style}text-align:left;">担当者</th>'
-        f'<th style="{th_style}text-align:left;">概要</th>'
-        f'<th style="{th_style}text-align:center;">ステータス</th>'
-        f'<th style="{th_style}text-align:center;">最終操作</th>'
+        f'<th style="text-align:left;">アカウント名</th>'
+        f'<th style="text-align:left;">担当者</th>'
+        f'<th style="text-align:left;">概要</th>'
+        f'<th style="text-align:center;">ステータス</th>'
+        f'<th style="text-align:center;">最終操作</th>'
         f'</tr></thead>'
         f'<tbody>{rows_html}</tbody>'
         f'</table></div>',
