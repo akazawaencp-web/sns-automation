@@ -191,125 +191,73 @@ def main():
 
 
 def _render_step1_basic_info():
-    """ステップ1: ターゲット候補の生成と選択"""
+    """ステップ1: ターゲットの選定"""
     st.markdown("### ステップ1: ターゲットの選定")
 
     # 固定条件の表示
     st.info("**固定条件**: 20代男性・営業職")
 
-    # 業界キーワード選択
-    keyword_options = ["証券", "IT", "商社", "不動産", "保険", "メーカー", "広告", "人材", "SaaS", "銀行"]
-    default_idx = 0
-    saved_keyword = st.session_state.strategy_data.get("target_keyword", "")
-    if saved_keyword in keyword_options:
-        default_idx = keyword_options.index(saved_keyword)
-    keyword = st.selectbox(
-        "業界キーワード",
-        keyword_options,
-        index=default_idx,
+    st.markdown("以下から1つ選択してください：")
+
+    # ターゲット選択肢
+    target_options = [
+        "M&A仲介",
+        "医薬品メーカー (MR)",
+        "不動産仲介",
+        "ハウスメーカー",
+        "生命保険(外資大手_営業職)",
+        "銀行",
+        "証券",
+        "人材紹介会社(キャリアアドバイザー)",
+        "人材紹介会社(リクルーティングアドバイザー)",
+        "部品メーカー",
+        "食品メーカー",
+        "飲料メーカー",
+        "総合電気メーカー",
+        "繊維商社",
+        "鉄鋼商社",
+        "医療機器メーカー",
+        "医薬品卸(MS)",
+        "損害保険",
+        "生命保険(国内大手_総合職)",
+        "不動産賃貸",
+        "人材派遣会社",
+        "自動車ディーラー",
+        "SaaS",
+        "SIer",
+        "ITコンサル",
+        "Webマーケティング",
+    ]
+
+    # デフォルトの選択を設定
+    default_index = 0
+    saved_target = st.session_state.strategy_data.get("target", "")
+    if saved_target in target_options:
+        default_index = target_options.index(saved_target)
+
+    selected_target = st.radio(
+        "ターゲット",
+        options=target_options,
+        index=default_index,
+        label_visibility="collapsed",
     )
 
-    # ターゲット候補生成ボタン
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        generate_btn = st.button("ターゲット候補を10個生成", use_container_width=True)
-    with col2:
-        if st.session_state.strategy_data.get("target_candidates"):
-            regenerate_btn = st.button("再生成", use_container_width=True)
-        else:
-            regenerate_btn = False
+    # 次へボタン
+    if st.button("次へ →", use_container_width=True, type="primary"):
+        # 固定値を設定
+        st.session_state.strategy_data["role"] = "元業界人・キャリアチェンジ経験者"
+        st.session_state.strategy_data["service"] = "業界のリアルと後悔しないキャリア選択を発信"
+        st.session_state.strategy_data["target"] = selected_target
 
-    # 生成実行
-    if generate_btn or regenerate_btn:
-        with st.spinner("AIがターゲット候補を生成中..."):
-            # キーワードがない場合はデフォルト
-            search_keyword = keyword if keyword else "転職を考えている営業職"
-
-            try:
-                # 設定を読み込み
-                # config = load_config()  # Streamlit Cloud対応: 不要
-                claude = ClaudeAPI()
-
-                # プロンプトを読み込み
-                prompt_data = load_prompt(
-                    chapter="chapter1",
-                    prompt_name="target_suggestion",
-                    variables={"keyword": search_keyword}
-                )
-
-                # Claude APIで生成
-                candidates_text = claude.generate_text(
-                    prompt=prompt_data["user"],
-                    system_prompt=prompt_data.get("system"),
-                    temperature=prompt_data.get("temperature", 0.8),
-                    max_tokens=prompt_data.get("max_tokens", 2000),
-                )
-
-                # 候補をパース
-                candidates = _parse_target_candidates(candidates_text)
-
-                if candidates:
-                    # セッションに保存
-                    st.session_state.strategy_data["target_keyword"] = keyword
-                    st.session_state.strategy_data["target_candidates"] = candidates
-                    st.session_state.strategy_data["target_candidates_text"] = candidates_text
-
-                    # ファイルに永続化
-                    _save_strategy_data(
-                        st.session_state.current_project,
-                        1,  # 現在のステップ
-                        st.session_state.strategy_data
-                    )
-
-                    st.success(f"{len(candidates)}個のターゲット候補を生成しました！")
-                    st.rerun()
-                else:
-                    st.error("ターゲット候補の生成に失敗しました。もう一度お試しください。")
-
-            except FileNotFoundError:
-                error_helpers.show_config_not_found_error()
-            except Exception as e:
-                st.error(f"エラーが発生しました: {str(e)}")
-                with st.expander("エラーの詳細"):
-                    import traceback
-                    st.code(traceback.format_exc(), language="text")
-
-    # ターゲット候補の選択UI
-    if st.session_state.strategy_data.get("target_candidates"):
-        st.markdown("---")
-        st.markdown("### 生成されたターゲット候補")
-        st.markdown("以下から1つ選択してください：")
-
-        candidates = st.session_state.strategy_data["target_candidates"]
-
-        # デフォルトの選択を設定
-        default_index = 0
-        if st.session_state.strategy_data.get("target") in candidates:
-            default_index = candidates.index(st.session_state.strategy_data["target"])
-
-        selected_target = st.radio(
-            "ターゲット候補",
-            options=candidates,
-            index=default_index,
-            label_visibility="collapsed"
+        # ファイルに永続化
+        _save_strategy_data(
+            st.session_state.current_project,
+            2,  # 次のステップ
+            st.session_state.strategy_data
         )
 
-        # 次へボタン
-        if st.button("次へ →", use_container_width=True, type="primary"):
-            # 固定値を設定
-            st.session_state.strategy_data["role"] = "元業界人・キャリアチェンジ経験者"
-            st.session_state.strategy_data["service"] = "業界のリアルと後悔しないキャリア選択を発信"
-            st.session_state.strategy_data["target"] = selected_target
-
-            # ファイルに永続化
-            _save_strategy_data(
-                st.session_state.current_project,
-                2,  # 次のステップ
-                st.session_state.strategy_data
-            )
-
-            st.session_state.strategy_step = 2
-            st.rerun()
+        st.session_state.strategy_step = 2
+        st.rerun()
 
 
 def _render_step2_concept_generation():
