@@ -204,7 +204,7 @@ def _render_step1_basic_info():
         <style>
         div[data-testid="stRadio"] > div[role="radiogroup"] {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 0.3rem 2rem;
         }
         </style>
